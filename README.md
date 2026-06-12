@@ -2,32 +2,9 @@
 
 Version: `0.0.2`
 
-`research-wiki` is a Codex skill for building an Obsidian research wiki from Zotero literature. Its writing style is intentionally bilingual: Chinese is used for research thinking and synthesis, while English is preserved for source-facing academic details.
+`research-wiki` is a Codex skill for turning Zotero literature collections into a structured Obsidian research wiki. It creates Zotero-traceable source notes, keeps metadata and reading annotations connected to the original references, and supports project-level synthesis across concepts, themes, methods, and claims. It is designed for literature-intensive accounting and finance research, especially workflows that need both close reading and later manuscript writing.
 
-## Bilingual Writing Policy
-
-本 skill 的核心写作原则是“中文组织研究理解，英文保留学术原文信息”。
-
-中文主要用于：
-
-- 解释论文的研究问题、理论机制、研究设计和主要结论。
-- 比较多篇文献之间的联系、差异、争议和研究空白。
-- 形成面向项目的综合判断，例如对选题、文献综述、变量设计和实证设计的启发。
-- 记录研究者自己的理解、疑问、待验证事项和下一步阅读计划。
-
-英文主要用于：
-
-- Paper titles, author names, journal names, DOI, URL, Zotero item keys, and citation keys.
-- Theory names, constructs, methods, datasets, variable names, model names, and technical terms.
-- Source-note fields that may later be reused in academic writing or citation workflows.
-- Exact labels from Zotero metadata, annotations, and empirical tables when preserving the original wording matters.
-
-建议写法：
-
-- 中文句子中保留关键英文术语，例如 `information asymmetry（信息不对称）`、`difference-in-differences`、`audit quality`。
-- 不随意翻译变量名、数据库名、模型名和 citation key，避免后续写作时与 Zotero 或原文脱节。
-- source note 可以中文解读为主，但标题、期刊、作者、DOI、citation key、变量和模型字段应保持英文原文。
-- 跨文献页面可以用中文组织论证，但证据、方法和变量名称应能回溯到英文原文。
+`research-wiki` 是一个将 Zotero 文献集合整理为 Obsidian 研究知识库的 Codex skill。它可以生成可追溯到 Zotero 条目的 source note，保留文献元数据、引用信息、阅读注释和精读状态，并把单篇文献解读进一步组织到 concepts、themes、methods 和 claims 等跨文献页面中。它适合会计、财务和金融研究中的长期文献积累、精读、选题讨论、研究设计和论文写作准备。
 
 ## Features
 
@@ -55,4 +32,3 @@ Version: `0.0.2`
 ## Safety
 
 The skill does not modify Zotero records, collections, PDFs, attachments, or tags. Zotero remains the reference manager; Obsidian remains the research note layer.
-
