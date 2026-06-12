@@ -36,33 +36,157 @@ updated:
 tags:
 ```
 
-For source pages, include:
+For source pages, use Zotero-backed frontmatter so the Markdown note can be traced back to the reference manager and reused in writing:
+
+```yaml
+type: source
+status: draft
+zotero_item_key:
+zotero_library_id:
+zotero_uri:
+citation_key:
+title:
+authors:
+year:
+venue:
+doi:
+url:
+abstract:
+created:
+updated:
+zotero_modified:
+source_fingerprint:
+deep_read_priority: high | medium | low | exclude
+read_scope:
+tags:
+project:
+```
+
+Source frontmatter rules:
+
+- `zotero_item_key` is the stable Zotero item identifier.
+- `citation_key` is the Better BibTeX/Zotero citekey when available; use it for writing citations such as `[@citation_key]`.
+- `zotero_uri` should point back to the Zotero item, for example `zotero://select/library/items/ITEMKEY`.
+- `created` and `updated` are Markdown note timestamps.
+- `zotero_modified` records the Zotero item modification time.
+- `source_fingerprint` is computed from Zotero metadata, abstract, notes, and annotations. If it changes, mark the note `needs-update` and review metadata and annotation sections before touching deep-read interpretation.
+- Initial source notes may use only Zotero metadata, abstract, notes, and annotations. Leave unavailable research-design fields blank.
+
+Use AR reading priority:
+
+| Priority | Read scope | Source note behavior |
+|---|---|---|
+| `high` | 阅读全文 | 完整补充研究问题、理论机制、模型、变量、所有检验、结论、创新与不足 |
+| `medium` | 阅读 abstract、introduction、research design、conclusion | 补充核心问题、设计、模型框架、主要结论；细节不足处标空 |
+| `low` | 只读摘要 | 只生成基本信息、摘要、初筛判断和项目相关性 |
+| `exclude` | 不阅读 | 仅保留 Zotero 对应关系和排除原因 |
+
+For empirical-accounting source pages, include:
 
 ```markdown
 # Chinese working title / English source title
 
-## Citation
-- Zotero item key:
-- Authors:
-- Year:
-- Venue:
-- DOI/URL:
+## 1. 文献基本信息
+- 标题：
+- 作者：
+- 年度：
+- 期刊：
+- DOI：
+- Zotero item key：
+- Citation key：
+- Zotero link：
+- 写作引用：
+- 摘要：
 
-## 核心贡献 / Core Contribution
+## 2. MD 文件信息
+- 创建时间：
+- 最后修改时间：
+- Zotero 条目修改时间：
+- Source fingerprint：
+- 当前精读标签：high / medium / low / exclude
+- 当前阅读范围：
+- 更新状态：up-to-date / needs-update / needs-review
 
-## 研究问题 / Research Question
+## 3. 初筛判断
+- 是否纳入后续研究：
+- 项目相关性：
+- 文献角色：core_literature / related_stream / theory_mechanism / method_data / china_context / excluded_weakfit
+- 精读优先级：
+- 排除或保留理由：
 
-## 理论机制 / Theory and Mechanism
+## 4. 具体研究内容
+### 4.1 研究问题
+- 本文研究什么问题：
+- 该问题为何重要：
+- 对应的会计/财务研究场景：
 
-## 数据与方法 / Data and Method
+### 4.2 研究方法
+- 研究设计类型：
+- 数据来源：
+- 样本范围：
+- 样本期间：
+- 分析单位：
 
-## 主要发现 / Findings
+### 4.3 主检验
+- 主检验模型：
+- 被解释变量：
+- 解释变量：
+- 控制变量：
+- 固定效应：
+- 标准误聚类：
+- 主检验结论：
 
-## 局限与识别风险 / Limits and Identification Risks
+### 4.4 机制检验
+- 机制逻辑：
+- 机制检验方法：
+- 机制检验模型：
+- 机制变量：
+- 机制检验结论：
 
-## 与本项目的关系 / Relevance to This Project
+### 4.5 异质性检验
+- 分组或调节变量：
+- 检验方法：
+- 检验模型：
+- 异质性结论：
 
-## 可连接页面 / Links to Wiki Pages
+### 4.6 稳健性检验
+- 替代变量：
+- 替代样本：
+- 替代模型：
+- 其他稳健性处理：
+- 稳健性结论：
+
+### 4.7 内生性检验
+- 潜在内生性问题：
+- 处理方法：
+- 检验模型：
+- 工具变量 / DID / PSM / Heckman / 其他方法：
+- 内生性处理结论：
+
+## 5. 文章评价
+### 5.1 主要结论
+
+### 5.2 创新点
+
+### 5.3 不足与识别风险
+
+### 5.4 对本项目的启发
+- 可借鉴之处：
+- 需要避免之处：
+- 可用于文献综述的位置：
+- 可用于研究设计的位置：
+- 可用于变量设计的位置：
+
+## 6. Zotero 阅读注释
+| Page | Type | Color | Text | Comment | Tags |
+|---|---|---|---|---|---|
+
+## 7. 待补充清单
+- 缺失的元数据：
+- 需要阅读全文确认：
+- 需要核对的模型或变量：
+- 需要补充的 Zotero 注释：
+- 需要连接的 concept/theme/method/claim 页面：
 ```
 
 For synthesis pages, separate evidence from interpretation:
@@ -105,7 +229,7 @@ Each entry should name changed pages, missing full-text blockers, and decisions 
 ## Ingest Rules
 
 1. Read metadata first, then Zotero indexed full text if available.
-2. Create or update the source page.
+2. Create or update the source page using the Zotero-backed source note schema.
 3. Identify concepts, themes, methods, and claims touched by the source.
 4. Update existing synthesis pages before creating new ones when the page already exists.
 5. Add cross-links from source to synthesis pages and back from synthesis pages to sources.

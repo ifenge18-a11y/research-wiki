@@ -50,7 +50,17 @@ python3 ~/.codex/skills/research-wiki/scripts/research_wiki.py export-collection
    - relevant pages in `concepts/`, `themes/`, `methods/`, and `claims/`
    - `index.md`
    - `log.md`
-5. Run a health check after meaningful updates:
+5. For a Zotero-backed empirical-accounting source note, use the helper to create the initial source page from Zotero metadata, abstract, notes, and annotations:
+
+```bash
+python3 ~/.codex/skills/research-wiki/scripts/research_wiki.py source-note \
+  ITEMKEY \
+  --project-path "/Users/feng/Documents/Obsidian Vault/ESG CSR" \
+  --priority low \
+  --yes
+```
+
+6. Run a health check after meaningful updates:
 
 ```bash
 python3 ~/.codex/skills/research-wiki/scripts/research_wiki.py check \
@@ -61,6 +71,8 @@ python3 ~/.codex/skills/research-wiki/scripts/research_wiki.py check \
 
 - Write wiki pages in bilingual form: Chinese synthesis first, preserving English titles, constructs, methods, variable names, and quote-adjacent technical terms.
 - Use Zotero item keys as stable source identifiers. Distinguish them from BibTeX keys if both appear.
+- Preserve Zotero traceability in source pages: `zotero_item_key`, `zotero_uri`, `citation_key`, `zotero_modified`, and `source_fingerprint`.
+- Use AR reading priority in source pages: `high` for full text, `medium` for abstract/introduction/research design/conclusion, `low` for abstract-only screening, and `exclude` for no read.
 - Keep raw source claims tied to source notes. Put cross-paper synthesis in concept/theme/method/claim pages.
 - Update `index.md` whenever adding, renaming, or materially changing wiki pages.
 - Append to `log.md` for every ingest, query answer filed back into the wiki, and lint/check pass.
