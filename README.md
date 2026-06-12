@@ -1,38 +1,47 @@
 # Research Wiki
 
-`research-wiki` 是一个用于把 Zotero 文献集合整理为 Obsidian 研究知识库的 Codex skill。它把 Zotero 视为只读的原始文献层，把 Obsidian Markdown 视为可持续维护的研究笔记层，适合长期积累文献解读、概念、主题、方法和研究主张。
+Version: `0.0.2`
 
-## 中英文书写原则
+`research-wiki` is a Codex skill for building an Obsidian research wiki from Zotero literature. Its writing style is intentionally bilingual: Chinese is used for research thinking and synthesis, while English is preserved for source-facing academic details.
 
-本 skill 默认采用双语研究写作方式：
+## Bilingual Writing Policy
 
-- 中文用于解释、比较、综合判断和项目化理解，方便后续选题、文献综述和研究设计。
-- 英文保留论文标题、作者、期刊、理论名称、constructs、methods、变量名、数据集名称和引用相关字段。
-- source note 中的文献基本信息、Zotero item key、citation key、DOI、URL 和变量/模型名称应尽量保持英文原文。
-- 跨文献综合页面可以用中文组织逻辑，但关键术语首次出现时建议保留英文，例如 `information asymmetry（信息不对称）`。
-- 不直接翻译或改写可用于引用的英文专有名词，避免后续写作时与 Zotero 引文和原文表述脱节。
+本 skill 的核心写作原则是“中文组织研究理解，英文保留学术原文信息”。
 
-## What It Does
+中文主要用于：
 
-- Builds an Obsidian research wiki from a Zotero collection.
-- Exports Zotero metadata and indexed full text into a local project cache.
-- Creates one source note per Zotero item.
-- Preserves Zotero traceability through item keys, Zotero links, citation keys, DOI, URL, modification time, and source fingerprints.
-- Supports AR-style reading priorities: `high`, `medium`, `low`, and `exclude`.
-- Generates Zotero-backed empirical-accounting source notes with fields for research question, design, sample, variables, main model, mechanism tests, heterogeneity tests, robustness tests, endogeneity tests, findings, innovation, and limitations.
-- Syncs Zotero notes and annotations into Markdown source notes for evidence tracking.
-- Organizes synthesis pages into concepts, themes, methods, and claims.
-- Updates project index and log files after source-note ingestion.
-- Checks the wiki for missing source notes, missing full text, orphan pages, and stale index entries.
+- 解释论文的研究问题、理论机制、研究设计和主要结论。
+- 比较多篇文献之间的联系、差异、争议和研究空白。
+- 形成面向项目的综合判断，例如对选题、文献综述、变量设计和实证设计的启发。
+- 记录研究者自己的理解、疑问、待验证事项和下一步阅读计划。
 
-## Typical Workflow
+英文主要用于：
 
-1. Check Zotero and the local vault.
-2. Create a project wiki for one Zotero collection.
-3. Export collection metadata and indexed full text into the project cache.
-4. Generate or update source notes from Zotero items.
-5. Add cross-paper synthesis in concept, theme, method, and claim pages.
-6. Run the project check before continuing major wiki work.
+- Paper titles, author names, journal names, DOI, URL, Zotero item keys, and citation keys.
+- Theory names, constructs, methods, datasets, variable names, model names, and technical terms.
+- Source-note fields that may later be reused in academic writing or citation workflows.
+- Exact labels from Zotero metadata, annotations, and empirical tables when preserving the original wording matters.
+
+建议写法：
+
+- 中文句子中保留关键英文术语，例如 `information asymmetry（信息不对称）`、`difference-in-differences`、`audit quality`。
+- 不随意翻译变量名、数据库名、模型名和 citation key，避免后续写作时与 Zotero 或原文脱节。
+- source note 可以中文解读为主，但标题、期刊、作者、DOI、citation key、变量和模型字段应保持英文原文。
+- 跨文献页面可以用中文组织论证，但证据、方法和变量名称应能回溯到英文原文。
+
+## Features
+
+- Build an Obsidian research wiki from a Zotero collection.
+- Treat Zotero as the read-only source layer and Obsidian Markdown as the maintained research-note layer.
+- Export Zotero metadata and indexed full text into a local project cache.
+- Create one source note per Zotero item.
+- Preserve Zotero traceability through item keys, Zotero links, citation keys, DOI, URL, modification time, and source fingerprints.
+- Generate empirical-accounting source notes with fields for research question, method, sample, variables, main model, mechanism tests, heterogeneity tests, robustness tests, endogeneity tests, findings, innovation, and limitations.
+- Support AR-style reading priorities: `high`, `medium`, `low`, and `exclude`.
+- Sync Zotero notes and annotations into Markdown source notes for evidence tracking.
+- Organize synthesis pages into concepts, themes, methods, and claims.
+- Update project index and log files after source-note ingestion.
+- Check the wiki for missing source notes, missing full text, orphan pages, and stale index entries.
 
 ## Reading Priority
 
