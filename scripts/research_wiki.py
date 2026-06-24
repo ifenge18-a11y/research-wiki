@@ -29,6 +29,12 @@ READ_SCOPES = {
     "low": "只读摘要",
     "exclude": "不阅读",
 }
+READ_LEVELS = {
+    "high": "abstract",
+    "medium": "abstract",
+    "low": "abstract",
+    "exclude": "abstract",
+}
 
 
 class ResearchWikiError(RuntimeError):
@@ -265,9 +271,21 @@ def markdown_cell(value: Any) -> str:
     return text.replace("\n", "<br>").replace("|", "\\|")
 
 
+def has_frontmatter_field(text: str, field: str) -> bool:
+    if not text.startswith("---\n"):
+        return False
+    end = text.find("\n---\n", 4)
+    if end == -1:
+        return False
+    frontmatter = text[4:end]
+    return re.search(rf"(?m)^{re.escape(field)}\s*:", frontmatter) is not None
+
+
 def yaml_scalar(value: Any) -> str:
     if value is None or value == "":
         return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
     if isinstance(value, list):
         return "[" + ", ".join(yaml_scalar(item) for item in value) + "]"
     text = str(value).replace("\r\n", "\n").replace("\r", "\n")
@@ -374,10 +392,13 @@ def render_source_note(
     fingerprint = source_fingerprint(item, notes_and_annotations)
     zotero_modified = str(data.get("dateModified") or "")
     tags = [tag.get("tag") for tag in data.get("tags", []) if isinstance(tag, dict) and tag.get("tag")]
+    status = "deep_read_skip" if priority == "exclude" else "screened"
+    need_fulltext_read = priority in {"high", "medium"}
+    read_level = READ_LEVELS[priority]
 
     frontmatter = {
         "type": "source",
-        "status": "draft",
+        "status": status,
         "zotero_item_key": item_key,
         "zotero_library_id": "0",
         "zotero_uri": zotero_uri,
@@ -395,6 +416,9 @@ def render_source_note(
         "source_fingerprint": fingerprint,
         "deep_read_priority": priority,
         "read_scope": READ_SCOPES[priority],
+        "need_fulltext_read": need_fulltext_read,
+        "deep_read_completed": "",
+        "read_level": read_level,
         "tags": tags,
         "project": project_name,
     }
@@ -423,6 +447,9 @@ def render_source_note(
 - Source fingerprint：{fingerprint}
 - 当前精读标签：{priority}
 - 当前阅读范围：{READ_SCOPES[priority]}
+- 当前阅读状态：{status}
+- 已完成阅读层级：{read_level}
+- 精读完成日期：
 - 更新状态：up-to-date
 
 ## 3. 初筛判断
@@ -586,7 +613,9 @@ Source pages must preserve Zotero traceability and AR reading priority:
 - Keep `zotero_item_key`, `zotero_uri`, and `citation_key` in frontmatter.
 - Keep `created`, `updated`, `zotero_modified`, and `source_fingerprint`.
 - Use `deep_read_priority`: `high`, `medium`, `low`, or `exclude`.
+- Use read-state fields: `status`, `need_fulltext_read`, `read_level`, and `deep_read_completed`.
 - Use `high` for full-text deep reading; `medium` for abstract, introduction, research design, and conclusion; `low` for abstract-only screening; `exclude` for records not read.
+- Treat `deep_read_priority` as priority, not completion state. Use `status: deep_read_done` and `deep_read_completed: YYYY-MM-DD` only after completing the planned deep read.
 - Initial source notes may use only Zotero metadata, abstract, notes, and annotations. Leave unknown research-design fields blank.
 """
 
@@ -927,6 +956,7 @@ def command_check(args: argparse.Namespace) -> int:
     source_text = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in source_files)
     missing_source_notes = []
     missing_fulltext = []
+    missing_read_state = []
     fulltext_by_item = {p.name.split("__", 1)[0] for p in fulltext_files}
     for item_file in item_files:
         key = item_file.stem
@@ -934,6 +964,17 @@ def command_check(args: argparse.Namespace) -> int:
             missing_source_notes.append(key)
         if key not in fulltext_by_item:
             missing_fulltext.append(key)
+    for source_file in source_files:
+        text = source_file.read_text(encoding="utf-8", errors="replace")
+        missing_fields = [
+            field
+            for field in ("status", "need_fulltext_read", "read_level", "deep_read_completed")
+            if not has_frontmatter_field(text, field)
+        ]
+        if missing_fields:
+            missing_read_state.append(
+                {"source": str(source_file.relative_to(project_path)), "missing": missing_fields}
+            )
 
     result = {
         "project_path": str(project_path),
@@ -942,6 +983,7 @@ def command_check(args: argparse.Namespace) -> int:
         "source_notes": len(source_files),
         "missing_source_notes": missing_source_notes,
         "missing_fulltext": missing_fulltext,
+        "missing_read_state": missing_read_state,
         "orphan_locations": orphan_locations,
         "unindexed_pages": unindexed_pages,
     }

@@ -40,7 +40,7 @@ For source pages, use Zotero-backed frontmatter so the Markdown note can be trac
 
 ```yaml
 type: source
-status: draft
+status: screened | deep_read_in_progress | deep_read_done | deep_read_skip
 zotero_item_key:
 zotero_library_id:
 zotero_uri:
@@ -58,6 +58,9 @@ zotero_modified:
 source_fingerprint:
 deep_read_priority: high | medium | low | exclude
 read_scope:
+need_fulltext_read: true | false
+deep_read_completed:
+read_level: abstract | intro_design_conclusion | fulltext
 tags:
 project:
 ```
@@ -71,6 +74,7 @@ Source frontmatter rules:
 - `zotero_modified` records the Zotero item modification time.
 - `source_fingerprint` is computed from Zotero metadata, abstract, notes, and annotations. If it changes, mark the note `needs-update` and review metadata and annotation sections before touching deep-read interpretation.
 - Initial source notes may use only Zotero metadata, abstract, notes, and annotations. Leave unavailable research-design fields blank.
+- Source-note read progress is authoritative for avoiding duplicate work. Zotero tags may mirror it, but source frontmatter wins if they conflict.
 
 Use AR reading priority:
 
@@ -80,6 +84,18 @@ Use AR reading priority:
 | `medium` | 阅读 abstract、introduction、research design、conclusion | 补充核心问题、设计、模型框架、主要结论；细节不足处标空 |
 | `low` | 只读摘要 | 只生成基本信息、摘要、初筛判断和项目相关性 |
 | `exclude` | 不阅读 | 仅保留 Zotero 对应关系和排除原因 |
+
+Use read-state fields separately from priority:
+
+| Field | Meaning |
+|---|---|
+| `status: screened` | 已完成元数据、摘要或初筛层面的处理，尚未完成全文精读 |
+| `status: deep_read_in_progress` | 正在精读全文或核心章节 |
+| `status: deep_read_done` | 已完成规定精读，后续批处理默认跳过 |
+| `status: deep_read_skip` | 明确不再精读，正文或日志应记录原因 |
+| `need_fulltext_read` | 是否仍需要后续全文或核心章节阅读 |
+| `read_level` | 实际已完成的阅读层级，不等同于 priority |
+| `deep_read_completed` | 只有完成精读后填写 `YYYY-MM-DD` |
 
 For empirical-accounting source pages, include:
 
@@ -105,6 +121,9 @@ For empirical-accounting source pages, include:
 - Source fingerprint：
 - 当前精读标签：high / medium / low / exclude
 - 当前阅读范围：
+- 当前阅读状态：screened / deep_read_in_progress / deep_read_done / deep_read_skip
+- 已完成阅读层级：abstract / intro_design_conclusion / fulltext
+- 精读完成日期：
 - 更新状态：up-to-date / needs-update / needs-review
 
 ## 3. 初筛判断
@@ -245,4 +264,5 @@ Check for:
 - Contradictions not represented in `claims/`.
 - Missing or stale index entries.
 - Missing full text in `.research-wiki/cache/fulltext/`.
+- Source notes missing read-state frontmatter fields: `status`, `need_fulltext_read`, `read_level`, or `deep_read_completed`.
 - Orphan Markdown pages outside `.research-wiki/`.
