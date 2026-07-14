@@ -1,11 +1,13 @@
 ---
 name: research-wiki
 description: Build and maintain Obsidian research wikis from Zotero collections using the LLM Wiki pattern. Use when Codex needs to read downloaded Zotero literature, create or update a local Obsidian project knowledge base, ingest papers into bilingual source notes, synthesize concepts/themes/methods/claims, update index/log files, or lint a research wiki for stale claims, missing links, and missing full text.
+metadata:
+  version: "0.1.0"
 ---
 
 # Research Wiki
 
-Use this skill to turn a Zotero collection into a persistent Obsidian research wiki. Treat Zotero as the read-only raw source layer, Obsidian Markdown as the maintained wiki layer, and the project `AGENTS.md` as the local schema.
+Use this skill to turn a Zotero collection into a persistent Obsidian research wiki. Treat Zotero as the read-only raw source layer, the Knowledge Base as the maintained and evidence-grounded wiki layer, and the project `AGENTS.md` as the local schema. When explicitly enabled, use a separate Research Base for exploratory research work that is not yet a stable knowledge claim.
 
 ## Quick Start
 
@@ -67,6 +69,50 @@ python3 ~/.codex/skills/research-wiki/scripts/research_wiki.py check \
   --project-path "/Users/feng/Documents/Obsidian Vault/ESG CSR"
 ```
 
+## Research Base (Opt-In)
+
+Use Research Base only when the project `AGENTS.md` explicitly declares it or the user explicitly asks to establish, use, save to, or organize it. Do not create it for a normal research discussion, temporary brainstorming, or one-off explanation.
+
+Before the first Research Base write, read the project `AGENTS.md`; if it already exists, also read its `README.md`, `index.md`, `log.md`, and relevant active notes. State the exact Research Base path and get user confirmation. Project rules override the default path, language, frontmatter, status values, and promotion conditions.
+
+Default initialization is explicit and requires `--yes`:
+
+```bash
+python3 ~/.codex/skills/research-wiki/scripts/research_wiki.py init-research-base \
+  --project-path "/Users/feng/Documents/Obsidian Vault/ESG CSR" \
+  --yes
+```
+
+The default location is `Research Base/` within the project. Pass `--research-base-path` only when the project schema specifies another location. The command creates navigation files, the five default work areas, the archive, and reusable templates; `init-project` never creates this folder automatically.
+
+Use Research Base for candidate research questions, conversation summaries, method prototypes, data-feasibility checks, design alternatives, and rejected or superseded paths. Every note must use:
+
+```yaml
+type: conversation_note | topic_exploration | method_prototype | data_feasibility | design_alternative
+status: exploratory | under_review | promoted | rejected | superseded
+evidence_status: unverified | partially_verified | verified
+created: YYYY-MM-DD
+last_updated: YYYY-MM-DD
+kb_promotion: false
+related_kb_pages: []
+supersedes:
+```
+
+- Keep Zotero records, attachments, source notes, and reading-state fields out of Research Base. Link existing Knowledge Base pages instead of duplicating them.
+- Mark unverified literature facts, data fields, identification assumptions, and expected results clearly. Do not turn prototypes into established conclusions.
+- Update Research Base `index.md` and append `log.md` after each creation, rename, archive, status change, or promotion.
+- Promote only after the user explicitly asks, unless the project schema explicitly authorizes promotion. Verify the evidence, write only the reusable conclusion to the appropriate Knowledge Base page, cross-link both records, and retain the original note with `status: promoted`.
+- Preserve promoted, rejected, and superseded notes. Move rejected or deferred work to `90_Archived_or_Rejected/` when the project schema requires archival rather than an in-place status change.
+
+Validate the default structure without contacting Zotero:
+
+```bash
+python3 ~/.codex/skills/research-wiki/scripts/research_wiki.py check-research-base \
+  --project-path "/Users/feng/Documents/Obsidian Vault/ESG CSR"
+```
+
+The check returns JSON and exits nonzero for missing structure, invalid metadata, unindexed notes, duplicated source-note metadata, or incomplete promotion records.
+
 ## Writing Rules
 
 - Write wiki pages in bilingual form: Chinese synthesis first, preserving English titles, constructs, methods, variable names, and quote-adjacent technical terms.
@@ -103,4 +149,4 @@ Use `status: screened` and `read_level: abstract` for initial source notes creat
 ## Resources
 
 - Read `references/project-schema.md` when creating or updating project wiki pages.
-- Use `scripts/research_wiki.py` for repeatable Zotero reads, project skeleton creation, cache export, and wiki health checks.
+- Use `scripts/research_wiki.py` for repeatable Zotero reads, project skeleton creation, Research Base initialization, cache export, and health checks.

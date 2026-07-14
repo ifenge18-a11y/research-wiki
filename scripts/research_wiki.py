@@ -23,6 +23,35 @@ DEFAULT_VAULT = Path(os.environ.get("RESEARCH_WIKI_VAULT", "/Users/feng/Document
 USER_PREFIX = "/api/users/0"
 CACHE_DIR = ".research-wiki/cache"
 WIKI_DIRS = ("sources", "concepts", "themes", "methods", "claims")
+RESEARCH_BASE_DEFAULT_DIR = "Research Base"
+RESEARCH_BASE_DIRS = (
+    "00_Conversation_Notes",
+    "01_Topic_Exploration",
+    "02_Method_Prototypes",
+    "03_Data_Feasibility",
+    "04_Design_Alternatives",
+    "90_Archived_or_Rejected",
+    "_templates",
+)
+RESEARCH_BASE_NOTE_TYPES = {
+    "conversation_note",
+    "topic_exploration",
+    "method_prototype",
+    "data_feasibility",
+    "design_alternative",
+}
+RESEARCH_BASE_STATUSES = {"exploratory", "under_review", "promoted", "rejected", "superseded"}
+RESEARCH_BASE_EVIDENCE_STATUSES = {"unverified", "partially_verified", "verified"}
+RESEARCH_BASE_REQUIRED_FIELDS = (
+    "type",
+    "status",
+    "evidence_status",
+    "created",
+    "last_updated",
+    "kb_promotion",
+    "related_kb_pages",
+    "supersedes",
+)
 READ_SCOPES = {
     "high": "阅读全文",
     "medium": "阅读 abstract、introduction、research design、conclusion",
@@ -553,6 +582,222 @@ def render_source_note(
 """
 
 
+def research_base_templates() -> dict[str, str]:
+    common = """---
+type: {note_type}
+status: exploratory
+evidence_status: unverified
+created: {date}
+last_updated: {date}
+kb_promotion: false
+related_kb_pages: []
+supersedes:
+---
+"""
+    date = today()
+    return {
+        "conversation-note.md": common.format(note_type="conversation_note", date=date)
+        + """# Conversation Note\n\n## 问题与背景\n\n## 工作设想\n\n## 待核验事项\n\n## 下一步\n""",
+        "topic-exploration.md": common.format(note_type="topic_exploration", date=date)
+        + """# Topic Exploration\n\n## 候选研究问题\n\n## 预期贡献与主要风险\n\n## 竞争解释与待核验文献\n\n## 下一步\n""",
+        "method-prototype.md": common.format(note_type="method_prototype", date=date)
+        + """# Method Prototype\n\n## 原型目标\n\n## 候选变量、模型或识别思路\n\n## 未核验假设与验证计划\n\n## 相关 Knowledge Base 页面\n""",
+        "data-feasibility.md": common.format(note_type="data_feasibility", date=date)
+        + """# Data Feasibility\n\n## 候选数据与分析单位\n\n## 字段、映射与样本可得性\n\n## 未核验限制\n\n## 下一步\n""",
+        "design-alternative.md": common.format(note_type="design_alternative", date=date)
+        + """# Design Alternative\n\n## 设计选项\n\n## 取舍与替代解释\n\n## 识别风险与待核验事项\n\n## 决策记录\n""",
+    }
+
+
+def research_base_readme(project_path: Path, research_base_path: Path) -> str:
+    return f"""# Research Base
+
+This folder stores exploratory research work for `{project_path.name}`. It is not a parallel literature library.
+
+## Boundaries
+
+- **Zotero** remains authoritative for bibliographic records, PDFs, attachments, annotations, collections, and tags.
+- **Knowledge Base** stores traceable source notes, verified concepts, mature methods, and reusable claims.
+- **Research Base** stores candidate questions, method prototypes, data-feasibility checks, design alternatives, discussion notes, and rejected paths that are not yet established conclusions.
+
+## Operating Rules
+
+- Every note must keep the required frontmatter, especially `status` and `evidence_status`.
+- Link to Knowledge Base pages instead of duplicating source notes or Zotero read-state metadata.
+- Update `index.md` and append `log.md` after creating, renaming, archiving, or promoting a note.
+- Promotion requires explicit user instruction or project-`AGENTS.md` authorization. Verify the underlying evidence first, write only the reusable conclusion to the Knowledge Base, then keep this note with `status: promoted`, `kb_promotion: true`, and the target links.
+- Preserve rejected, superseded, and promoted notes so that research decisions remain traceable.
+
+Default location: `{research_base_path}`. Project `AGENTS.md` overrides this default when it declares a different path, schema, language, or promotion rule.
+"""
+
+
+def research_base_index_md() -> str:
+    return """# Research Base Index
+
+Exploratory material only. Evidence labels in each note determine whether it can be promoted.
+
+## Conversation Notes
+
+## Topic Exploration
+
+## Method Prototypes
+
+## Data Feasibility
+
+## Design Alternatives
+
+## Archived or Rejected
+"""
+
+
+def research_base_log_md() -> str:
+    return f"""# Research Base Log
+
+## [{today()}] init | Research Base
+
+- Created the opt-in Research Base structure and templates.
+"""
+
+
+def ensure_research_base(project_path: Path, research_base_path: Path) -> None:
+    research_base_path.mkdir(parents=True, exist_ok=True)
+    for directory in RESEARCH_BASE_DIRS:
+        (research_base_path / directory).mkdir(exist_ok=True)
+    write_if_missing(research_base_path / "README.md", research_base_readme(project_path, research_base_path))
+    write_if_missing(research_base_path / "index.md", research_base_index_md())
+    write_if_missing(research_base_path / "log.md", research_base_log_md())
+    for filename, content in research_base_templates().items():
+        write_if_missing(research_base_path / "_templates" / filename, content)
+
+
+def resolve_research_base_path(args: argparse.Namespace) -> tuple[Path, Path]:
+    project_path = resolve_project_path(args)
+    configured_path = getattr(args, "research_base_path", None)
+    if configured_path:
+        research_base_path = Path(configured_path).expanduser().resolve()
+    else:
+        research_base_path = project_path / RESEARCH_BASE_DEFAULT_DIR
+    return project_path, research_base_path
+
+
+def parse_frontmatter(text: str) -> dict[str, str] | None:
+    if not text.startswith("---\n"):
+        return None
+    end = text.find("\n---\n", 4)
+    if end == -1:
+        return None
+    result: dict[str, str] = {}
+    for line in text[4:end].splitlines():
+        match = re.match(r"^([^:#][^:]*):(?:\s*(.*))?$", line)
+        if match:
+            result[match.group(1).strip()] = (match.group(2) or "").strip()
+    return result
+
+
+def normalized_frontmatter_value(value: str | None) -> str:
+    if value is None:
+        return ""
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1]
+    return value
+
+
+def nonempty_list_value(value: str | None) -> bool:
+    normalized = normalized_frontmatter_value(value)
+    return bool(normalized and normalized not in {"[]", "null", "None"})
+
+
+def research_base_note_paths(research_base_path: Path) -> list[Path]:
+    return sorted(
+        path
+        for path in research_base_path.rglob("*.md")
+        if path.parent.name != "_templates" and path.name not in {"README.md", "index.md", "log.md"}
+    )
+
+
+def research_base_check_result(project_path: Path, research_base_path: Path) -> dict[str, Any]:
+    findings: list[dict[str, str]] = []
+
+    def finding(code: str, message: str, path: Path | None = None) -> None:
+        entry = {"code": code, "message": message}
+        if path:
+            entry["path"] = str(path.relative_to(research_base_path))
+        findings.append(entry)
+
+    if not research_base_path.exists():
+        finding("missing_research_base", "Research Base directory does not exist.")
+        return {
+            "project_path": str(project_path),
+            "research_base_path": str(research_base_path),
+            "valid": False,
+            "note_count": 0,
+            "findings": findings,
+        }
+
+    for name in ("README.md", "index.md", "log.md"):
+        if not (research_base_path / name).is_file():
+            finding("missing_navigation_file", f"Missing required file: {name}.")
+    for directory in RESEARCH_BASE_DIRS:
+        if not (research_base_path / directory).is_dir():
+            finding("missing_directory", f"Missing required directory: {directory}.")
+
+    index_path = research_base_path / "index.md"
+    index_text = index_path.read_text(encoding="utf-8", errors="replace") if index_path.exists() else ""
+    notes = research_base_note_paths(research_base_path)
+    for note_path in notes:
+        rel = note_path.relative_to(research_base_path)
+        text = note_path.read_text(encoding="utf-8", errors="replace")
+        frontmatter = parse_frontmatter(text)
+        if frontmatter is None:
+            finding("missing_frontmatter", "Note has no valid YAML frontmatter.", note_path)
+            continue
+
+        missing_fields = [field for field in RESEARCH_BASE_REQUIRED_FIELDS if field not in frontmatter]
+        if missing_fields:
+            finding("missing_required_fields", f"Missing required fields: {', '.join(missing_fields)}.", note_path)
+
+        note_type = normalized_frontmatter_value(frontmatter.get("type"))
+        status = normalized_frontmatter_value(frontmatter.get("status"))
+        evidence_status = normalized_frontmatter_value(frontmatter.get("evidence_status"))
+        if note_type not in RESEARCH_BASE_NOTE_TYPES:
+            finding("invalid_type", f"Unsupported Research Base type: {note_type or '<empty>'}.", note_path)
+        if status not in RESEARCH_BASE_STATUSES:
+            finding("invalid_status", f"Unsupported status: {status or '<empty>'}.", note_path)
+        if evidence_status not in RESEARCH_BASE_EVIDENCE_STATUSES:
+            finding("invalid_evidence_status", f"Unsupported evidence_status: {evidence_status or '<empty>'}.", note_path)
+
+        if note_type == "source" or any(
+            field in frontmatter for field in ("zotero_item_key", "zotero_uri", "citation_key", "source_fingerprint")
+        ):
+            finding("duplicate_source_note", "Research Base must link to, not duplicate, Zotero or Knowledge Base source notes.", note_path)
+
+        promoted = status == "promoted"
+        kb_promotion = normalized_frontmatter_value(frontmatter.get("kb_promotion")) == "true"
+        related_pages = nonempty_list_value(frontmatter.get("related_kb_pages"))
+        if promoted and evidence_status != "verified":
+            finding("promotion_without_verified_evidence", "Promoted note must have evidence_status: verified.", note_path)
+        if promoted and not kb_promotion:
+            finding("promotion_flag_missing", "Promoted note must set kb_promotion: true.", note_path)
+        if promoted and not related_pages:
+            finding("promotion_link_missing", "Promoted note must link to its Knowledge Base destination.", note_path)
+        if kb_promotion and not promoted:
+            finding("promotion_status_mismatch", "kb_promotion: true requires status: promoted.", note_path)
+
+        note_link = rel.with_suffix("").as_posix()
+        if f"[[{note_link}" not in index_text and f"[[{note_path.stem}" not in index_text:
+            finding("unindexed_note", "Note is not linked from Research Base index.md.", note_path)
+
+    return {
+        "project_path": str(project_path),
+        "research_base_path": str(research_base_path),
+        "valid": not findings,
+        "note_count": len(notes),
+        "findings": findings,
+    }
+
+
 def ensure_project(project_path: Path, collection_key: str | None, collection_name: str | None) -> None:
     project_path.mkdir(parents=True, exist_ok=True)
     for directory in WIKI_DIRS:
@@ -596,6 +841,14 @@ Project source: Zotero collection `{collection_line}`.
 - `index.md`: content index updated after every meaningful wiki change.
 - `log.md`: append-only chronological record.
 - `.research-wiki/cache/`: generated Zotero metadata and full text. Do not manually edit.
+
+## Research Base (Opt-In Only)
+
+- Create or use `Research Base/` only when this project explicitly enables it or the user asks to preserve exploratory research work.
+- Keep candidate topics, method prototypes, data feasibility checks, design alternatives, and rejected paths in Research Base with explicit evidence labels.
+- Do not put Zotero-backed source notes or source-note read-state fields in Research Base. Link to Knowledge Base pages instead.
+- Before the first Research Base write, state its exact path and get user confirmation. Project rules may override the default path, language, schema, and promotion conditions.
+- Promote content to this wiki only with explicit user instruction or project authorization after verification. Keep the Research Base decision trail and update both indexes and logs.
 
 ## Ingest Checklist
 
@@ -760,6 +1013,24 @@ def command_init_project(args: argparse.Namespace) -> int:
         collection.get("data", {}).get("name") if collection else args.collection_name,
     )
     print(json.dumps({"project_path": str(project_path), "created": True}, ensure_ascii=False, indent=2))
+    return 0
+
+
+def command_init_research_base(args: argparse.Namespace) -> int:
+    project_path, research_base_path = resolve_research_base_path(args)
+    require_yes(args, research_base_path)
+    ensure_research_base(project_path, research_base_path)
+    print(
+        json.dumps(
+            {
+                "project_path": str(project_path),
+                "research_base_path": str(research_base_path),
+                "created": True,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
     return 0
 
 
@@ -991,6 +1262,13 @@ def command_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_check_research_base(args: argparse.Namespace) -> int:
+    project_path, research_base_path = resolve_research_base_path(args)
+    result = research_base_check_result(project_path, research_base_path)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result["valid"] else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Manage Zotero-backed Obsidian research wiki projects.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1011,6 +1289,20 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--collection-name")
     init.add_argument("--yes", action="store_true", help="Confirm writing project files.")
     init.set_defaults(func=command_init_project)
+
+    init_research_base = sub.add_parser(
+        "init-research-base",
+        help="Create the opt-in Research Base structure for exploratory project work.",
+    )
+    init_research_base.add_argument("--project", help="Project folder name under --vault.")
+    init_research_base.add_argument("--project-path", help="Exact project path.")
+    init_research_base.add_argument("--vault", default=str(DEFAULT_VAULT))
+    init_research_base.add_argument(
+        "--research-base-path",
+        help="Exact Research Base path; defaults to <project-path>/Research Base.",
+    )
+    init_research_base.add_argument("--yes", action="store_true", help="Confirm writing Research Base files.")
+    init_research_base.set_defaults(func=command_init_research_base)
 
     export = sub.add_parser("export-collection", help="Export Zotero collection metadata and indexed full text caches.")
     export.add_argument("--collection-key")
@@ -1040,6 +1332,19 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--project-path", help="Exact project path.")
     check.add_argument("--vault", default=str(DEFAULT_VAULT))
     check.set_defaults(func=command_check)
+
+    check_research_base = sub.add_parser(
+        "check-research-base",
+        help="Validate Research Base structure, note metadata, navigation, and promotion boundaries.",
+    )
+    check_research_base.add_argument("--project", help="Project folder name under --vault.")
+    check_research_base.add_argument("--project-path", help="Exact project path.")
+    check_research_base.add_argument("--vault", default=str(DEFAULT_VAULT))
+    check_research_base.add_argument(
+        "--research-base-path",
+        help="Exact Research Base path; defaults to <project-path>/Research Base.",
+    )
+    check_research_base.set_defaults(func=command_check_research_base)
     return parser
 
 

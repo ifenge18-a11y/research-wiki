@@ -23,6 +23,44 @@ claims/
 - `claims/`: durable propositions, contradictions, boundary conditions, and evidence status.
 - `.research-wiki/cache/`: machine-generated Zotero metadata and full text. Do not manually edit.
 
+## Research Base Contract (Opt-In)
+
+`Research Base/` is an optional sibling of the Knowledge Base structure above. It is not created by `init-project`; use it only when the project `AGENTS.md` declares it or the user explicitly requests exploratory research persistence.
+
+```text
+Research Base/
+  README.md
+  index.md
+  log.md
+  00_Conversation_Notes/
+  01_Topic_Exploration/
+  02_Method_Prototypes/
+  03_Data_Feasibility/
+  04_Design_Alternatives/
+  90_Archived_or_Rejected/
+  _templates/
+```
+
+- `README.md` records the boundary among Zotero, Knowledge Base, and Research Base, plus local promotion rules.
+- `index.md` links all active and archived notes with a one-line description; `log.md` is append-only.
+- Research Base may contain candidate questions, design comparisons, unverified data checks, and prototypes. It must not contain duplicated Zotero records, source notes, PDF/read-state management, or unverified content presented as a settled conclusion.
+- A project may override this path, directory layout, language, frontmatter, status rules, and promotion conditions in `AGENTS.md`. The project rule takes precedence.
+
+Default Research Base note frontmatter:
+
+```yaml
+type: conversation_note | topic_exploration | method_prototype | data_feasibility | design_alternative
+status: exploratory | under_review | promoted | rejected | superseded
+evidence_status: unverified | partially_verified | verified
+created: YYYY-MM-DD
+last_updated: YYYY-MM-DD
+kb_promotion: false
+related_kb_pages: []
+supersedes:
+```
+
+Promotion is explicit: verify the underlying evidence, write only the stable reusable conclusion to the relevant Knowledge Base page, cross-link both notes, set the original note to `status: promoted`, and preserve its decision trail. Rejected and superseded notes are retained and indexed rather than deleted.
+
 ## Page Conventions
 
 Use YAML frontmatter on wiki-authored pages:
