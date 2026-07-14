@@ -2,7 +2,7 @@
 name: research-wiki
 description: Build and maintain Obsidian research wikis from Zotero collections using the LLM Wiki pattern. Use when Codex needs to read downloaded Zotero literature, create or update a local Obsidian project knowledge base, ingest papers into bilingual source notes, synthesize concepts/themes/methods/claims, update index/log files, or lint a research wiki for stale claims, missing links, and missing full text.
 metadata:
-  version: "0.1.0"
+  version: "0.2.0"
 ---
 
 # Research Wiki
@@ -17,12 +17,14 @@ Helper script:
 python3 ~/.codex/skills/research-wiki/scripts/research_wiki.py <command>
 ```
 
-Start every workflow with:
+For Zotero-backed workflows, start with:
 
 ```bash
 python3 ~/.codex/skills/research-wiki/scripts/research_wiki.py status
 python3 ~/.codex/skills/research-wiki/scripts/research_wiki.py collections
 ```
+
+Research Base-only commands and `init-project` without a collection are Zotero-independent; do not run Zotero preflight for them.
 
 Default vault path: `/Users/feng/Documents/Obsidian Vault`. Before writing there, state the exact project path and get user confirmation. The helper also requires `--yes` for write commands.
 
@@ -48,7 +50,7 @@ python3 ~/.codex/skills/research-wiki/scripts/research_wiki.py export-collection
 ```
 
 4. Read `AGENTS.md` inside the project, then read the exported cache for the target item(s). Treat project-specific source-note schema, read-state rules, and Zotero safety rules as binding. Write or update:
-   - `sources/<year>-<first-author>-<short-title>.md`
+   - `<knowledge_base_path>/sources/<year>-<first-author>-<short-title>.md`
    - relevant pages in `concepts/`, `themes/`, `methods/`, and `claims/`
    - `index.md`
    - `log.md`
@@ -58,9 +60,17 @@ python3 ~/.codex/skills/research-wiki/scripts/research_wiki.py export-collection
 python3 ~/.codex/skills/research-wiki/scripts/research_wiki.py source-note \
   ITEMKEY \
   --project-path "/Users/feng/Documents/Obsidian Vault/ESG CSR" \
-  --priority low \
+  --priority medium \
+  --boss-category theory_mechanism \
+  --boss-screening-reason "Core mechanism source" \
+  --pdf-status manual_pdf_pending \
+  --project-use mechanism \
+  --source-route google_scholar \
+  --verification-status verified \
   --yes
 ```
+
+`source-note` accepts the complete AR handoff. `high` and `medium` default to `need_fulltext_read: true`; use `--no-need-fulltext-read` only when the planned evidence is already sufficient. To update an existing note, use `refresh-source-note`; it refreshes Zotero-controlled metadata, fingerprint, and annotations while preserving read progress and manually authored research sections. Destructive `--overwrite` is deprecated and requires `--confirm-destructive-overwrite`.
 
 6. Run a health check after meaningful updates:
 
@@ -83,7 +93,7 @@ python3 ~/.codex/skills/research-wiki/scripts/research_wiki.py init-research-bas
   --yes
 ```
 
-The default location is `Research Base/` within the project. Pass `--research-base-path` only when the project schema specifies another location. The command creates navigation files, the five default work areas, the archive, and reusable templates; `init-project` never creates this folder automatically.
+The default location is `Research Base/` within the project. Project paths are stored in `.research-wiki/config.json`; CLI path arguments override config for the current command. Pass `--research-base-schema` for a project-level JSON schema when `AGENTS.md` defines custom directories, fields, or enums. The command creates navigation files, the five default work areas, the archive, and reusable templates; `init-project` never creates this folder automatically.
 
 Use Research Base for candidate research questions, conversation summaries, method prototypes, data-feasibility checks, design alternatives, and rejected or superseded paths. Every note must use:
 
@@ -96,13 +106,16 @@ last_updated: YYYY-MM-DD
 kb_promotion: false
 related_kb_pages: []
 supersedes:
+promoted_at:
+superseded_by:
+decision_reason:
 ```
 
 - Keep Zotero records, attachments, source notes, and reading-state fields out of Research Base. Link existing Knowledge Base pages instead of duplicating them.
 - Mark unverified literature facts, data fields, identification assumptions, and expected results clearly. Do not turn prototypes into established conclusions.
 - Update Research Base `index.md` and append `log.md` after each creation, rename, archive, status change, or promotion.
-- Promote only after the user explicitly asks, unless the project schema explicitly authorizes promotion. Verify the evidence, write only the reusable conclusion to the appropriate Knowledge Base page, cross-link both records, and retain the original note with `status: promoted`.
-- Preserve promoted, rejected, and superseded notes. Move rejected or deferred work to `90_Archived_or_Rejected/` when the project schema requires archival rather than an in-place status change.
+- Promote only after the user explicitly asks, unless the project schema explicitly authorizes promotion. Verify the evidence, write only the reusable conclusion to the appropriate Knowledge Base page, cross-link both records, set `promoted_at`, and retain the original note with `status: promoted`.
+- Preserve promoted, rejected, and superseded notes. Record `decision_reason` for rejected work and `superseded_by` for replaced work. Move rejected or deferred work to `90_Archived_or_Rejected/` when the project schema requires archival rather than an in-place status change.
 
 Validate the default structure without contacting Zotero:
 
@@ -111,14 +124,14 @@ python3 ~/.codex/skills/research-wiki/scripts/research_wiki.py check-research-ba
   --project-path "/Users/feng/Documents/Obsidian Vault/ESG CSR"
 ```
 
-The check returns JSON and exits nonzero for missing structure, invalid metadata, unindexed notes, duplicated source-note metadata, or incomplete promotion records.
+Both checks return `valid`, `errors`, and `warnings`; errors exit nonzero. Use `--report-only` only for legacy reporting pipelines that require a zero exit status.
 
 ## Writing Rules
 
 - Write wiki pages in bilingual form: Chinese synthesis first, preserving English titles, constructs, methods, variable names, and quote-adjacent technical terms.
 - Use Zotero item keys as stable source identifiers. Distinguish them from BibTeX keys if both appear.
 - Preserve Zotero traceability in source pages: `zotero_item_key`, `zotero_uri`, `citation_key`, `zotero_modified`, and `source_fingerprint`.
-- Preserve source-note read progress in frontmatter. Use `status`, `deep_read_priority`, `need_fulltext_read`, `read_level`, and `deep_read_completed` unless the project `AGENTS.md` defines a different schema.
+- Preserve source-note read progress in frontmatter. Use `status`, `deep_read_priority`, `need_fulltext_read`, `read_level`, and `deep_read_completed` unless the project `AGENTS.md` defines a different schema. Keep `source_route`, `verification_status`, and actual `read_level` as separate dimensions.
 - Treat source-note frontmatter as the authority for read progress. Zotero tags are secondary; if they conflict, prefer the source note and record a Zotero sync follow-up.
 - Use AR reading priority in source pages: `high` for full-text deep-read priority, `medium` for abstract/introduction/research design/conclusion priority, `low` for abstract-only screening, and `exclude` for no read. Priority is not completion state.
 - Keep raw source claims tied to source notes. Put cross-paper synthesis in concept/theme/method/claim pages.

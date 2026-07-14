@@ -43,6 +43,9 @@ last_updated: 2026-07-14
 kb_promotion: false
 related_kb_pages: []
 supersedes:
+promoted_at:
+superseded_by:
+decision_reason:
 ---
 # Test note
 """
@@ -134,14 +137,46 @@ supersedes:
             result, payload = self.check_base(project)
             self.assertEqual(result.returncode, 1)
             codes = {item["code"] for item in payload["findings"]}
-            self.assertTrue({"promotion_without_verified_evidence", "promotion_flag_missing", "promotion_link_missing"} <= codes)
+            self.assertTrue(
+                {
+                    "promotion_without_verified_evidence",
+                    "promotion_flag_missing",
+                    "promotion_link_missing",
+                    "promotion_date_missing",
+                }
+                <= codes
+            )
+
+    def test_rejected_and_superseded_notes_require_decision_trail(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            project = Path(temp) / "project"
+            base = self.init_base(project)
+            rejected = base / "90_Archived_or_Rejected" / "rejected.md"
+            superseded = base / "01_Topic_Exploration" / "superseded.md"
+            rejected.write_text(self.note("design_alternative", status="rejected"), encoding="utf-8")
+            superseded.write_text(self.note("topic_exploration", status="superseded"), encoding="utf-8")
+            (base / "index.md").write_text(
+                (base / "index.md").read_text(encoding="utf-8")
+                + "\n- [[90_Archived_or_Rejected/rejected]]\n- [[01_Topic_Exploration/superseded]]\n",
+                encoding="utf-8",
+            )
+            result, payload = self.check_base(project)
+            self.assertEqual(result.returncode, 1)
+            codes = {item["code"] for item in payload["errors"]}
+            self.assertIn("decision_reason_missing", codes)
+            self.assertIn("superseded_link_missing", codes)
 
     def test_archived_note_remains_valid_and_indexed(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             project = Path(temp) / "project"
             base = self.init_base(project)
             note = base / "90_Archived_or_Rejected" / "rejected.md"
-            note.write_text(self.note("design_alternative", status="rejected"), encoding="utf-8")
+            note.write_text(
+                self.note("design_alternative", status="rejected").replace(
+                    "decision_reason:\n", "decision_reason: identification failed\n"
+                ),
+                encoding="utf-8",
+            )
             (base / "index.md").write_text(
                 (base / "index.md").read_text(encoding="utf-8") + "\n- [[90_Archived_or_Rejected/rejected]] - rejected path\n",
                 encoding="utf-8",

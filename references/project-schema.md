@@ -14,7 +14,20 @@ themes/
 methods/
 claims/
 .research-wiki/cache/
+.research-wiki/config.json
 ```
+
+`.research-wiki/config.json` is the machine-readable path contract:
+
+```json
+{
+  "schema_version": 1,
+  "knowledge_base_path": ".",
+  "research_base_path": "Research Base"
+}
+```
+
+Paths may be absolute or relative to the project. CLI path flags override config for one command. Without a config file, keep backward compatibility by using the project root as Knowledge Base and `<project>/Research Base` as Research Base. `AGENTS.md` remains authoritative for policy, language, frontmatter, and promotion rules; encode custom validator fields and enums in a project schema JSON referenced by `research_base_schema_path` or passed through `--research-base-schema`.
 
 - `sources/`: one page per Zotero item. Source pages summarize and interpret one paper only.
 - `concepts/`: construct definitions, mechanisms, theories, variables, institutional context.
@@ -57,9 +70,14 @@ last_updated: YYYY-MM-DD
 kb_promotion: false
 related_kb_pages: []
 supersedes:
+promoted_at:
+superseded_by:
+decision_reason:
 ```
 
-Promotion is explicit: verify the underlying evidence, write only the stable reusable conclusion to the relevant Knowledge Base page, cross-link both notes, set the original note to `status: promoted`, and preserve its decision trail. Rejected and superseded notes are retained and indexed rather than deleted.
+Promotion is explicit: verify the underlying evidence, write only the stable reusable conclusion to the relevant Knowledge Base page, cross-link both notes, set the original note to `status: promoted`, record `promoted_at`, and preserve its decision trail. Rejected notes require `decision_reason`; superseded notes require `superseded_by`. All three terminal states remain retained and indexed rather than deleted.
+
+A custom Research Base schema JSON may replace the default `directories`, `note_types`, `statuses`, `evidence_statuses`, and `required_fields` string lists. Omitted schema files use the defaults above.
 
 ## Page Conventions
 
@@ -94,6 +112,13 @@ created:
 updated:
 zotero_modified:
 source_fingerprint:
+metadata_status: up_to_date | needs_update | needs_review
+source_route: openalex | google_scholar | cnki | publisher | ssrn | nber | user | manual | unknown
+verification_status: verified | partially_verified | unverified
+boss_category: core_literature | related_stream | theory_mechanism | method_data | china_context | excluded_weakfit
+boss_screening_reason:
+pdf_status: need_pdf | pdf_available | manual_pdf_pending | not_needed | unknown
+project_use:
 deep_read_priority: high | medium | low | exclude
 read_scope:
 need_fulltext_read: true | false
@@ -110,7 +135,10 @@ Source frontmatter rules:
 - `zotero_uri` should point back to the Zotero item, for example `zotero://select/library/items/ITEMKEY`.
 - `created` and `updated` are Markdown note timestamps.
 - `zotero_modified` records the Zotero item modification time.
-- `source_fingerprint` is computed from Zotero metadata, abstract, notes, and annotations. If it changes, mark the note `needs-update` and review metadata and annotation sections before touching deep-read interpretation.
+- `source_fingerprint` is computed from Zotero metadata, abstract, notes, and annotations. If it changes, set the separate `metadata_status: needs_update`; do not put metadata freshness into the source-note workflow `status` field.
+- `source_route` records where the record was discovered or checked. `verification_status` records metadata/evidence verification and always uses the same three values, including for CNKI. `read_level` records the evidence depth actually read. These dimensions must not be collapsed into one label.
+- `source-note` accepts the complete AR screening handoff. `high` and `medium` default to `need_fulltext_read: true`, while `low` and `exclude` default to `false`; an explicit CLI override is allowed except that `exclude` cannot require a deep read.
+- Use `refresh-source-note` when Zotero metadata or annotations change. It updates only Zotero-controlled metadata, the fingerprint, metadata status, and annotation/basic-information sections; it preserves `created`, read state, completion date, screening judgment, and manually authored research sections.
 - Initial source notes may use only Zotero metadata, abstract, notes, and annotations. Leave unavailable research-design fields blank.
 - Source-note read progress is authoritative for avoiding duplicate work. Zotero tags may mirror it, but source frontmatter wins if they conflict.
 
@@ -162,7 +190,7 @@ For empirical-accounting source pages, include:
 - 当前阅读状态：screened / deep_read_in_progress / deep_read_done / deep_read_skip
 - 已完成阅读层级：abstract / intro_design_conclusion / fulltext
 - 精读完成日期：
-- 更新状态：up-to-date / needs-update / needs-review
+- 更新状态：up-to-date / needs-update / needs-review（对应 `metadata_status`，不对应 source `status`）
 
 ## 3. 初筛判断
 - 是否纳入后续研究：
@@ -269,7 +297,7 @@ For synthesis pages, separate evidence from interpretation:
 
 - Group pages by source, concept, theme, method, and claim.
 - Each entry should contain an Obsidian link, one-line summary, and source count when useful.
-- Update it after every ingest or filed query answer.
+- Update it after every ingest or filed query answer. Use path-qualified links such as `[[sources/2025-lovelace-test]]`; basename-only links are accepted only when the basename is unique across the Knowledge Base.
 
 ## Log Rules
 
@@ -301,6 +329,8 @@ Check for:
 - Concepts or claims mentioned repeatedly but missing pages.
 - Contradictions not represented in `claims/`.
 - Missing or stale index entries.
-- Missing full text in `.research-wiki/cache/fulltext/`.
+- Missing full text in `.research-wiki/cache/fulltext/` only when the corresponding source note has `need_fulltext_read: true`.
+- Stale source fingerprints compared with `.research-wiki/cache/items/*.json`.
 - Source notes missing read-state frontmatter fields: `status`, `need_fulltext_read`, `read_level`, or `deep_read_completed`.
-- Orphan Markdown pages outside `.research-wiki/`.
+- Orphan Markdown pages outside the configured Knowledge Base contract. Exclude the configured Research Base from Knowledge Base linting.
+- Return machine-readable `valid`, `errors`, and `warnings`; errors exit nonzero unless `--report-only` is explicitly requested.
