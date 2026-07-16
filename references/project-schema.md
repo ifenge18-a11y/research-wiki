@@ -8,6 +8,7 @@ Use this schema inside each Obsidian project created by `$research-wiki`.
 AGENTS.md
 index.md
 log.md
+knowledge.base                 # optional; explicit opt-in
 sources/
 concepts/
 themes/
@@ -21,13 +22,15 @@ claims/
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "knowledge_base_path": ".",
-  "research_base_path": "Research Base"
+  "research_base_path": "Research Base",
+  "project_name": "Project Alpha",
+  "obsidian_bases_enabled": false
 }
 ```
 
-Paths may be absolute or relative to the project. CLI path flags override config for one command. Without a config file, keep backward compatibility by using the project root as Knowledge Base and `<project>/Research Base` as Research Base. `AGENTS.md` remains authoritative for policy, language, frontmatter, and promotion rules; encode custom validator fields and enums in a project schema JSON referenced by `research_base_schema_path` or passed through `--research-base-schema`.
+Paths may be absolute or relative to the project. CLI path flags override config for one command. `project_name` is the stable property used to isolate optional Obsidian Base rows; it defaults to the project-folder name. `obsidian_bases_enabled` records explicit dynamic-view opt-in. Without a config file, keep backward compatibility by using the project root as Knowledge Base and `<project>/Research Base` as Research Base. A write command upgrades older configs without discarding unknown project settings. `AGENTS.md` remains authoritative for policy, language, frontmatter, and promotion rules; encode custom validator fields and enums in a project schema JSON referenced by `research_base_schema_path` or passed through `--research-base-schema`.
 
 - `sources/`: one page per Zotero item. Source pages summarize and interpret one paper only.
 - `concepts/`: construct definitions, mechanisms, theories, variables, institutional context.
@@ -45,6 +48,7 @@ Research Base/
   README.md
   index.md
   log.md
+  research.base                # optional; explicit opt-in
   00_Conversation_Notes/
   01_Topic_Exploration/
   02_Method_Prototypes/
@@ -62,11 +66,13 @@ Research Base/
 Default Research Base note frontmatter:
 
 ```yaml
+project: Project Alpha
 type: conversation_note | topic_exploration | method_prototype | data_feasibility | design_alternative
 status: exploratory | under_review | promoted | rejected | superseded
 evidence_status: unverified | partially_verified | verified
 created: YYYY-MM-DD
 last_updated: YYYY-MM-DD
+tags: []
 kb_promotion: false
 related_kb_pages: []
 supersedes:
@@ -79,11 +85,14 @@ Promotion is explicit: verify the underlying evidence, write only the stable reu
 
 A custom Research Base schema JSON may replace the default `directories`, `note_types`, `statuses`, `evidence_statuses`, and `required_fields` string lists. Omitted schema files use the defaults above.
 
+The `project` property is required on newly authored Research Base notes so project-scoped Obsidian Bases can select them. Legacy notes without it remain valid but produce a warning. The generated templates include the configured `project_name`.
+
 ## Page Conventions
 
 Use YAML frontmatter on wiki-authored pages:
 
 ```yaml
+project: Project Alpha
 type: source | concept | theme | method | claim
 status: draft | active | needs-review
 zotero_key:
@@ -138,6 +147,7 @@ Source frontmatter rules:
 - `source_fingerprint` is computed from Zotero metadata, abstract, notes, and annotations. If it changes, set the separate `metadata_status: needs_update`; do not put metadata freshness into the source-note workflow `status` field.
 - `source_route` records where the record was discovered or checked. `verification_status` records metadata/evidence verification and always uses the same three values, including for CNKI. `read_level` records the evidence depth actually read. These dimensions must not be collapsed into one label.
 - `source-note` accepts the complete AR screening handoff. `high` and `medium` default to `need_fulltext_read: true`, while `low` and `exclude` default to `false`; an explicit CLI override is allowed except that `exclude` cannot require a deep read.
+- Render multiline abstracts as an Obsidian `abstract` callout in the note body; keep the complete abstract in frontmatter for metadata reuse.
 - Use `refresh-source-note` when Zotero metadata or annotations change. It updates only Zotero-controlled metadata, the fingerprint, metadata status, and annotation/basic-information sections; it preserves `created`, read state, completion date, screening judgment, and manually authored research sections.
 - Initial source notes may use only Zotero metadata, abstract, notes, and annotations. Leave unavailable research-design fields blank.
 - Source-note read progress is authoritative for avoiding duplicate work. Zotero tags may mirror it, but source frontmatter wins if they conflict.
@@ -178,7 +188,9 @@ For empirical-accounting source pages, include:
 - Citation key：
 - Zotero link：
 - 写作引用：
-- 摘要：
+
+> [!abstract] 摘要
+> 多行摘要内容
 
 ## 2. MD 文件信息
 - 创建时间：
@@ -298,6 +310,16 @@ For synthesis pages, separate evidence from interpretation:
 - Group pages by source, concept, theme, method, and claim.
 - Each entry should contain an Obsidian link, one-line summary, and source count when useful.
 - Update it after every ingest or filed query answer. Use path-qualified links such as `[[sources/2025-lovelace-test]]`; basename-only links are accepted only when the basename is unique across the Knowledge Base.
+- Keep `index.md` authoritative even when optional Obsidian Bases are enabled. Embed `![[knowledge.base]]` or `![[research.base]]` as a parallel dynamic view; never replace the curated index with a Base.
+
+## Optional Obsidian Rules
+
+- Follow the official `obsidian-markdown` conventions for properties, wikilinks, embeds, and callouts in both bases.
+- Enable `.base` files only through an explicit user/project request or `--with-obsidian-bases`; do not create them during ordinary project initialization.
+- Generated Knowledge Base views are Source Catalog, Reading Queue, Metadata Review, and Synthesis. Generated Research Base views are Active Explorations, Evidence Review, Promotion Queue, and Decision Archive.
+- Filter generated Bases by `project_name` and permitted `type` values. Preserve existing `.base` files rather than overwriting user customization.
+- Use `check-obsidian` only as an online supplement when Obsidian is open. It reports project unresolved links as errors, graph orphans/dead ends as warnings, and failed Base queries as errors.
+- Treat offline `orphan_location` as a directory-contract error, not a graph-orphan result.
 
 ## Log Rules
 
@@ -333,4 +355,5 @@ Check for:
 - Stale source fingerprints compared with `.research-wiki/cache/items/*.json`.
 - Source notes missing read-state frontmatter fields: `status`, `need_fulltext_read`, `read_level`, or `deep_read_completed`.
 - Orphan Markdown pages outside the configured Knowledge Base contract. Exclude the configured Research Base from Knowledge Base linting.
+- Newly authored synthesis or Research Base notes without the configured `project` property; retain warning-only compatibility for legacy notes.
 - Return machine-readable `valid`, `errors`, and `warnings`; errors exit nonzero unless `--report-only` is explicitly requested.

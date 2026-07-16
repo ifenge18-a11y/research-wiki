@@ -35,11 +35,13 @@ class ResearchBaseCommandTests(unittest.TestCase):
     @staticmethod
     def note(note_type: str, status: str = "exploratory", evidence: str = "unverified") -> str:
         return f"""---
+project: project
 type: {note_type}
 status: {status}
 evidence_status: {evidence}
 created: 2026-07-14
 last_updated: 2026-07-14
+tags: []
 kb_promotion: false
 related_kb_pages: []
 supersedes:

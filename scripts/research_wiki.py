@@ -10,6 +10,8 @@ import html
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -24,6 +26,10 @@ USER_PREFIX = "/api/users/0"
 CACHE_DIR = ".research-wiki/cache"
 CONFIG_FILE = ".research-wiki/config.json"
 WIKI_DIRS = ("sources", "concepts", "themes", "methods", "claims")
+KNOWLEDGE_BASE_FILE = "knowledge.base"
+RESEARCH_BASE_FILE = "research.base"
+KNOWLEDGE_BASE_VIEWS = ("Source Catalog", "Reading Queue", "Metadata Review", "Synthesis")
+RESEARCH_BASE_VIEWS = ("Active Explorations", "Evidence Review", "Promotion Queue", "Decision Archive")
 RESEARCH_BASE_DEFAULT_DIR = "Research Base"
 RESEARCH_BASE_DIRS = (
     "00_Conversation_Notes",
@@ -54,9 +60,11 @@ RESEARCH_BASE_REQUIRED_FIELDS = (
     "supersedes",
 )
 DEFAULT_PROJECT_CONFIG = {
-    "schema_version": 1,
+    "schema_version": 2,
     "knowledge_base_path": ".",
     "research_base_path": RESEARCH_BASE_DEFAULT_DIR,
+    "project_name": "",
+    "obsidian_bases_enabled": False,
 }
 DEFAULT_RESEARCH_BASE_SCHEMA = {
     "directories": list(RESEARCH_BASE_DIRS),
@@ -346,6 +354,15 @@ def yaml_scalar(value: Any) -> str:
     return f'"{escaped}"'
 
 
+def obsidian_callout(callout_type: str, title: str, content: str) -> str:
+    """Render multiline text as a valid Obsidian callout."""
+    lines = str(content or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    if not any(line.strip() for line in lines):
+        lines = ["（无摘要）"]
+    body = "\n".join(f"> {line}" if line else ">" for line in lines)
+    return f"> [!{callout_type}] {title}\n{body}"
+
+
 def citation_key_from_item(data: dict[str, Any]) -> str:
     for key in ("citationKey", "citekey"):
         if data.get(key):
@@ -494,6 +511,7 @@ def render_source_note(
     yaml = "---\n" + "\n".join(f"{key}: {yaml_scalar(value)}" for key, value in frontmatter.items()) + "\n---"
     citation = f"[@{citation_key}]" if citation_key else ""
     rows = "\n".join(annotation_rows(notes_and_annotations))
+    abstract_callout = obsidian_callout("abstract", "摘要", abstract)
     return f"""{yaml}
 # {title or item_key}
 
@@ -507,7 +525,8 @@ def render_source_note(
 - Citation key：{citation_key}
 - Zotero link：{zotero_uri}
 - 写作引用：{citation}
-- 摘要：{abstract}
+
+{abstract_callout}
 
 ## 2. MD 文件信息
 - 创建时间：{timestamp}
@@ -716,13 +735,245 @@ def find_source_note(knowledge_base_path: Path, item_key: str) -> Path | None:
     return None
 
 
-def research_base_templates() -> dict[str, str]:
+def yaml_single_quoted(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def base_string(value: str) -> str:
+    """Return a double-quoted string literal for an Obsidian Base expression."""
+    return json.dumps(value, ensure_ascii=False)
+
+
+def knowledge_base_definition(project_name: str) -> str:
+    project_filter = yaml_single_quoted(f"project == {base_string(project_name)}")
+    return f"""filters:
+  and:
+    - 'file.ext == "md"'
+    - {project_filter}
+    - or:
+        - 'type == "source"'
+        - 'type == "concept"'
+        - 'type == "theme"'
+        - 'type == "method"'
+        - 'type == "claim"'
+formulas:
+  days_since_update: 'if(updated, (now() - date(updated)).days, "")'
+properties:
+  file.name:
+    displayName: "Note"
+  formula.days_since_update:
+    displayName: "Days Since Update"
+views:
+  - type: table
+    name: "Source Catalog"
+    filters:
+      and:
+        - 'type == "source"'
+    order:
+      - file.name
+      - authors
+      - year
+      - venue
+      - verification_status
+      - status
+      - deep_read_priority
+      - read_level
+      - metadata_status
+  - type: table
+    name: "Reading Queue"
+    filters:
+      and:
+        - 'type == "source"'
+        - 'need_fulltext_read == true'
+        - 'status != "deep_read_done"'
+        - 'status != "deep_read_skip"'
+    groupBy:
+      property: deep_read_priority
+      direction: ASC
+    order:
+      - file.name
+      - deep_read_priority
+      - read_scope
+      - read_level
+      - pdf_status
+  - type: table
+    name: "Metadata Review"
+    filters:
+      and:
+        - 'type == "source"'
+        - or:
+            - 'metadata_status != "up_to_date"'
+            - 'verification_status != "verified"'
+    order:
+      - file.name
+      - metadata_status
+      - verification_status
+      - source_route
+      - zotero_modified
+      - updated
+  - type: table
+    name: "Synthesis"
+    filters:
+      or:
+        - 'type == "concept"'
+        - 'type == "theme"'
+        - 'type == "method"'
+        - 'type == "claim"'
+    groupBy:
+      property: type
+      direction: ASC
+    order:
+      - file.name
+      - type
+      - status
+      - updated
+      - formula.days_since_update
+"""
+
+
+def research_base_definition(project_name: str) -> str:
+    project_filter = yaml_single_quoted(f"project == {base_string(project_name)}")
+    return f"""filters:
+  and:
+    - 'file.ext == "md"'
+    - {project_filter}
+    - 'file.folder != this.file.folder + "/_templates"'
+    - or:
+        - 'type == "conversation_note"'
+        - 'type == "topic_exploration"'
+        - 'type == "method_prototype"'
+        - 'type == "data_feasibility"'
+        - 'type == "design_alternative"'
+formulas:
+  days_since_update: 'if(last_updated, (now() - date(last_updated)).days, "")'
+properties:
+  file.name:
+    displayName: "Note"
+  formula.days_since_update:
+    displayName: "Days Since Update"
+views:
+  - type: table
+    name: "Active Explorations"
+    filters:
+      or:
+        - 'status == "exploratory"'
+        - 'status == "under_review"'
+    order:
+      - file.name
+      - type
+      - status
+      - evidence_status
+      - last_updated
+      - formula.days_since_update
+      - related_kb_pages
+  - type: table
+    name: "Evidence Review"
+    filters:
+      and:
+        - 'evidence_status != "verified"'
+    order:
+      - file.name
+      - type
+      - status
+      - evidence_status
+      - last_updated
+      - related_kb_pages
+  - type: table
+    name: "Promotion Queue"
+    filters:
+      and:
+        - 'status == "under_review"'
+        - 'evidence_status == "verified"'
+    order:
+      - file.name
+      - type
+      - status
+      - evidence_status
+      - last_updated
+      - related_kb_pages
+  - type: table
+    name: "Decision Archive"
+    filters:
+      or:
+        - 'status == "promoted"'
+        - 'status == "rejected"'
+        - 'status == "superseded"'
+    order:
+      - file.name
+      - type
+      - status
+      - evidence_status
+      - promoted_at
+      - superseded_by
+      - decision_reason
+      - related_kb_pages
+"""
+
+
+def ensure_base_embed(index_path: Path, base_filename: str) -> bool:
+    embed = f"![[{base_filename}]]"
+    if not index_path.exists():
+        raise ResearchWikiError(f"Cannot embed {base_filename}; missing index: {index_path}")
+    text = index_path.read_text(encoding="utf-8", errors="replace")
+    if embed in text:
+        return False
+    marker = "## Dynamic Views"
+    if marker in text:
+        text = text.replace(marker, f"{marker}\n\n{embed}", 1)
+    else:
+        text = text.rstrip() + f"\n\n{marker}\n\n{embed}\n"
+    index_path.write_text(text.rstrip() + "\n", encoding="utf-8")
+    return True
+
+
+def install_obsidian_bases(
+    project_path: Path,
+    knowledge_base_path: Path,
+    research_base_path: Path,
+    scope: str,
+) -> dict[str, Any]:
+    config = load_project_config(project_path)
+    project_name = str(config.get("project_name") or project_path.name)
+    created: list[str] = []
+    existing: list[str] = []
+    skipped: list[dict[str, str]] = []
+
+    if scope in {"knowledge", "all"}:
+        if not knowledge_base_path.is_dir():
+            raise ResearchWikiError(f"Knowledge Base path does not exist: {knowledge_base_path}")
+        base_path = knowledge_base_path / KNOWLEDGE_BASE_FILE
+        if write_if_missing(base_path, knowledge_base_definition(project_name)):
+            created.append(str(base_path))
+        else:
+            existing.append(str(base_path))
+        ensure_base_embed(knowledge_base_path / "index.md", KNOWLEDGE_BASE_FILE)
+
+    if scope in {"research", "all"}:
+        if not research_base_path.is_dir():
+            if scope == "research":
+                raise ResearchWikiError(f"Research Base path does not exist: {research_base_path}")
+            skipped.append({"scope": "research", "reason": "Research Base is not initialized."})
+        else:
+            base_path = research_base_path / RESEARCH_BASE_FILE
+            if write_if_missing(base_path, research_base_definition(project_name)):
+                created.append(str(base_path))
+            else:
+                existing.append(str(base_path))
+            ensure_base_embed(research_base_path / "index.md", RESEARCH_BASE_FILE)
+
+    ensure_project_config(project_path, {"obsidian_bases_enabled": True})
+    return {"created": created, "existing": existing, "skipped": skipped}
+
+
+def research_base_templates(project_name: str) -> dict[str, str]:
     common = """---
+project: {project}
 type: {note_type}
 status: exploratory
 evidence_status: unverified
 created: {date}
 last_updated: {date}
+tags: []
 kb_promotion: false
 related_kb_pages: []
 supersedes:
@@ -733,23 +984,24 @@ decision_reason:
 """
     date = today()
     return {
-        "conversation-note.md": common.format(note_type="conversation_note", date=date)
+        "conversation-note.md": common.format(project=yaml_scalar(project_name), note_type="conversation_note", date=date)
         + """# Conversation Note\n\n## 问题与背景\n\n## 工作设想\n\n## 待核验事项\n\n## 下一步\n""",
-        "topic-exploration.md": common.format(note_type="topic_exploration", date=date)
+        "topic-exploration.md": common.format(project=yaml_scalar(project_name), note_type="topic_exploration", date=date)
         + """# Topic Exploration\n\n## 候选研究问题\n\n## 预期贡献与主要风险\n\n## 竞争解释与待核验文献\n\n## 下一步\n""",
-        "method-prototype.md": common.format(note_type="method_prototype", date=date)
+        "method-prototype.md": common.format(project=yaml_scalar(project_name), note_type="method_prototype", date=date)
         + """# Method Prototype\n\n## 原型目标\n\n## 候选变量、模型或识别思路\n\n## 未核验假设与验证计划\n\n## 相关 Knowledge Base 页面\n""",
-        "data-feasibility.md": common.format(note_type="data_feasibility", date=date)
+        "data-feasibility.md": common.format(project=yaml_scalar(project_name), note_type="data_feasibility", date=date)
         + """# Data Feasibility\n\n## 候选数据与分析单位\n\n## 字段、映射与样本可得性\n\n## 未核验限制\n\n## 下一步\n""",
-        "design-alternative.md": common.format(note_type="design_alternative", date=date)
+        "design-alternative.md": common.format(project=yaml_scalar(project_name), note_type="design_alternative", date=date)
         + """# Design Alternative\n\n## 设计选项\n\n## 取舍与替代解释\n\n## 识别风险与待核验事项\n\n## 决策记录\n""",
     }
 
 
 def research_base_readme(project_path: Path, research_base_path: Path) -> str:
+    project_name = str(load_project_config(project_path).get("project_name") or project_path.name)
     return f"""# Research Base
 
-This folder stores exploratory research work for `{project_path.name}`. It is not a parallel literature library.
+This folder stores exploratory research work for `{project_name}`. It is not a parallel literature library.
 
 ## Boundaries
 
@@ -813,19 +1065,30 @@ def load_project_config(project_path: Path) -> dict[str, Any]:
     if not isinstance(loaded, dict):
         raise ResearchWikiError(f"Project config must contain a JSON object: {path}")
     config.update(loaded)
+    if not isinstance(config.get("schema_version"), int):
+        raise ResearchWikiError("Project config field 'schema_version' must be an integer.")
     for key in ("knowledge_base_path", "research_base_path"):
         if not isinstance(config.get(key), str) or not str(config[key]).strip():
             raise ResearchWikiError(f"Project config field {key!r} must be a non-empty string.")
+    if not isinstance(config.get("project_name"), str):
+        raise ResearchWikiError("Project config field 'project_name' must be a string.")
+    if not str(config.get("project_name") or "").strip():
+        config["project_name"] = project_path.name
+    if not isinstance(config.get("obsidian_bases_enabled"), bool):
+        raise ResearchWikiError("Project config field 'obsidian_bases_enabled' must be a boolean.")
     return config
 
 
 def ensure_project_config(project_path: Path, updates: dict[str, Any] | None = None) -> None:
     path = project_config_path(project_path)
-    if path.exists():
-        return
-    config = dict(DEFAULT_PROJECT_CONFIG)
+    config = load_project_config(project_path) if path.exists() else dict(DEFAULT_PROJECT_CONFIG)
+    config["schema_version"] = max(int(config["schema_version"]), int(DEFAULT_PROJECT_CONFIG["schema_version"]))
+    if not str(config.get("project_name") or "").strip():
+        config["project_name"] = project_path.name
     if updates:
         config.update({key: value for key, value in updates.items() if value is not None})
+    if not str(config.get("project_name") or "").strip():
+        config["project_name"] = project_path.name
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
@@ -876,6 +1139,7 @@ def ensure_research_base(
     research_base_path: Path,
     schema: dict[str, list[str]],
 ) -> None:
+    project_name = str(load_project_config(project_path).get("project_name") or project_path.name)
     research_base_path.mkdir(parents=True, exist_ok=True)
     for directory in schema["directories"]:
         (research_base_path / directory).mkdir(exist_ok=True)
@@ -883,7 +1147,7 @@ def ensure_research_base(
     write_if_missing(research_base_path / "index.md", research_base_index_md())
     write_if_missing(research_base_path / "log.md", research_base_log_md())
     if "_templates" in schema["directories"]:
-        for filename, content in research_base_templates().items():
+        for filename, content in research_base_templates(project_name).items():
             write_if_missing(research_base_path / "_templates" / filename, content)
 
 
@@ -986,12 +1250,19 @@ def research_base_check_result(
 ) -> dict[str, Any]:
     errors: list[dict[str, str]] = []
     warnings: list[dict[str, str]] = []
+    expected_project = str(load_project_config(project_path).get("project_name") or project_path.name)
 
     def error(code: str, message: str, path: Path | None = None) -> None:
         entry = {"code": code, "message": message}
         if path:
             entry["path"] = str(path.relative_to(research_base_path))
         errors.append(entry)
+
+    def warning(code: str, message: str, path: Path | None = None) -> None:
+        entry = {"code": code, "message": message}
+        if path:
+            entry["path"] = str(path.relative_to(research_base_path))
+        warnings.append(entry)
 
     if not research_base_path.exists():
         error("missing_research_base", "Research Base directory does not exist.")
@@ -1030,6 +1301,20 @@ def research_base_check_result(
         missing_fields = [field for field in schema["required_fields"] if field not in frontmatter]
         if missing_fields:
             error("missing_required_fields", f"Missing required fields: {', '.join(missing_fields)}.", note_path)
+
+        note_project = normalized_frontmatter_value(frontmatter.get("project"))
+        if not note_project:
+            warning(
+                "missing_project_property",
+                "Legacy note has no project property; add it before relying on project-scoped Obsidian Bases.",
+                note_path,
+            )
+        elif note_project != expected_project:
+            warning(
+                "project_property_mismatch",
+                f"Note project property {note_project!r} does not match configured project_name {expected_project!r}.",
+                note_path,
+            )
 
         note_type = normalized_frontmatter_value(frontmatter.get("type"))
         status = normalized_frontmatter_value(frontmatter.get("status"))
@@ -1122,6 +1407,8 @@ Project source: Zotero collection `{collection_line}`.
 - Do not edit Zotero records, PDFs, or attachments.
 - Use Chinese synthesis with preserved English titles, constructs, methods, and variable names.
 - Use `.research-wiki/config.json` for machine-readable Knowledge Base and Research Base paths. CLI overrides apply only to the current command.
+- Use the configured `project_name` as the `project` property on every newly authored wiki or Research Base note.
+- Keep `index.md` as canonical navigation. Optional `knowledge.base` and `research.base` files are parallel dynamic views and never replace the indexes.
 
 ## Structure
 
@@ -1164,6 +1451,12 @@ Source pages must preserve Zotero traceability and AR reading priority:
 - Use `high` for full-text deep reading; `medium` for abstract, introduction, research design, and conclusion; `low` for abstract-only screening; `exclude` for records not read.
 - Treat `deep_read_priority` as priority, not completion state. Use `status: deep_read_done` and `deep_read_completed: YYYY-MM-DD` only after completing the planned deep read.
 - Initial source notes may use only Zotero metadata, abstract, notes, and annotations. Leave unknown research-design fields blank.
+
+## Optional Obsidian Integration
+
+- Follow Obsidian Flavored Markdown conventions for properties, wikilinks, embeds, and callouts.
+- Create dynamic Bases only after explicit opt-in. Preserve existing `.base` files rather than overwriting user customization.
+- Run `check-obsidian` only as an optional online supplement when Obsidian is open; offline checks remain authoritative automation gates.
 """
 
 
@@ -1305,6 +1598,7 @@ def command_init_project(args: argparse.Namespace) -> int:
     existing_config = load_project_config(project_path)
     knowledge_value = args.knowledge_base_path or existing_config["knowledge_base_path"]
     research_base_value = args.research_base_path or existing_config["research_base_path"]
+    project_name = args.project_name or existing_config.get("project_name") or project_path.name
     knowledge_base_path = configured_path(project_path, str(knowledge_value))
     ensure_project(
         project_path,
@@ -1314,11 +1608,22 @@ def command_init_project(args: argparse.Namespace) -> int:
         {
             "knowledge_base_path": knowledge_value,
             "research_base_path": research_base_value,
+            "project_name": project_name,
         },
     )
+    bases = None
+    if args.with_obsidian_bases:
+        research_base_path = configured_path(project_path, str(research_base_value))
+        bases = install_obsidian_bases(project_path, knowledge_base_path, research_base_path, "knowledge")
     print(
         json.dumps(
-            {"project_path": str(project_path), "knowledge_base_path": str(knowledge_base_path), "created": True},
+            {
+                "project_path": str(project_path),
+                "knowledge_base_path": str(knowledge_base_path),
+                "project_name": project_name,
+                "created": True,
+                "obsidian_bases": bases,
+            },
             ensure_ascii=False,
             indent=2,
         )
@@ -1329,15 +1634,68 @@ def command_init_project(args: argparse.Namespace) -> int:
 def command_init_research_base(args: argparse.Namespace) -> int:
     project_path, research_base_path = resolve_research_base_path(args)
     require_yes(args, research_base_path)
-    ensure_project_config(project_path, {"research_base_path": args.research_base_path})
+    current_config = load_project_config(project_path)
+    ensure_project_config(
+        project_path,
+        {
+            "research_base_path": args.research_base_path,
+            "project_name": getattr(args, "project_name", None)
+            or current_config.get("project_name")
+            or project_path.name,
+        },
+    )
     schema = load_research_base_schema(args, project_path)
     ensure_research_base(project_path, research_base_path, schema)
+    bases = None
+    if args.with_obsidian_bases:
+        knowledge_base_path = configured_path(project_path, str(load_project_config(project_path)["knowledge_base_path"]))
+        bases = install_obsidian_bases(project_path, knowledge_base_path, research_base_path, "research")
     print(
         json.dumps(
             {
                 "project_path": str(project_path),
                 "research_base_path": str(research_base_path),
                 "created": True,
+                "obsidian_bases": bases,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
+def command_init_obsidian_bases(args: argparse.Namespace) -> int:
+    project_path = resolve_project_path(args)
+    require_yes(args, project_path)
+    if not project_path.is_dir():
+        raise ResearchWikiError(f"Project path does not exist: {project_path}")
+    config = load_project_config(project_path)
+    knowledge_value = args.knowledge_base_path or str(config["knowledge_base_path"])
+    research_value = args.research_base_path or str(config["research_base_path"])
+    knowledge_base_path = configured_path(project_path, knowledge_value)
+    research_base_path = configured_path(project_path, research_value)
+    if args.scope in {"knowledge", "all"} and not knowledge_base_path.is_dir():
+        raise ResearchWikiError(f"Knowledge Base path does not exist: {knowledge_base_path}")
+    if args.scope == "research" and not research_base_path.is_dir():
+        raise ResearchWikiError(f"Research Base path does not exist: {research_base_path}")
+    ensure_project_config(
+        project_path,
+        {
+            "knowledge_base_path": knowledge_value,
+            "research_base_path": research_value,
+            "project_name": args.project_name or config.get("project_name") or project_path.name,
+        },
+    )
+    result = install_obsidian_bases(project_path, knowledge_base_path, research_base_path, args.scope)
+    print(
+        json.dumps(
+            {
+                "project_path": str(project_path),
+                "knowledge_base_path": str(knowledge_base_path),
+                "research_base_path": str(research_base_path),
+                "scope": args.scope,
+                **result,
             },
             ensure_ascii=False,
             indent=2,
@@ -1476,7 +1834,7 @@ def command_source_note(args: argparse.Namespace) -> int:
     ensure_project(project_path, knowledge_base_path, None, None)
     item = item_by_key(args.item_key)
     notes_and_annotations = child_notes_and_annotations(args.item_key)
-    project_name = args.project_name or project_path.name
+    project_name = args.project_name or load_project_config(project_path).get("project_name") or project_path.name
     content = render_source_note(
         item,
         notes_and_annotations,
@@ -1545,7 +1903,9 @@ def command_refresh_source_note(args: argparse.Namespace) -> int:
     fresh = render_source_note(
         item,
         notes_and_annotations,
-        normalized_frontmatter_value(frontmatter.get("project")) or project_path.name,
+        normalized_frontmatter_value(frontmatter.get("project"))
+        or load_project_config(project_path).get("project_name")
+        or project_path.name,
         priority,
     )
     refreshed = refresh_source_note_content(existing, fresh)
@@ -1631,7 +1991,11 @@ def command_check(args: argparse.Namespace) -> int:
         if len(rel.parts) == 1 and rel.name in special:
             continue
         if rel.parts[0] not in allowed_roots:
-            add_error("orphan_location", "Markdown page is outside the Knowledge Base directory contract.", str(rel))
+            add_error(
+                "orphan_location",
+                "Markdown page is outside the Knowledge Base directory contract; this is a structural error, not an Obsidian graph orphan.",
+                str(rel),
+            )
 
     index_path = knowledge_base_path / "index.md"
     index_text = index_path.read_text(encoding="utf-8") if index_path.exists() else ""
@@ -1652,6 +2016,22 @@ def command_check(args: argparse.Namespace) -> int:
         unique_stem_linked = stem_counts[stem] == 1 and stem in index_targets
         if not exact_linked and not unique_stem_linked:
             add_error("unindexed_page", "Page is not linked from index.md with an unambiguous path.", str(rel))
+        if rel.parts[0] != "sources":
+            frontmatter = parse_frontmatter(page.read_text(encoding="utf-8", errors="replace"))
+            project_name = normalized_frontmatter_value(frontmatter.get("project")) if frontmatter else ""
+            expected_project = str(config.get("project_name") or project_path.name)
+            if not project_name:
+                add_warning(
+                    "missing_project_property",
+                    "Legacy synthesis note has no project property; add it before relying on project-scoped Obsidian Bases.",
+                    str(rel),
+                )
+            elif project_name != expected_project:
+                add_warning(
+                    "project_property_mismatch",
+                    f"Note project property {project_name!r} does not match configured project_name {expected_project!r}.",
+                    str(rel),
+                )
 
     source_by_key: dict[str, tuple[Path, dict[str, Any]]] = {}
     for source_file in source_files:
@@ -1682,6 +2062,20 @@ def command_check(args: argparse.Namespace) -> int:
                 "Legacy source note is missing provenance, verification, or metadata-freshness fields.",
                 rel,
                 missing=missing_dimensions,
+            )
+        note_project = normalized_frontmatter_value(frontmatter.get("project"))
+        expected_project = str(config.get("project_name") or project_path.name)
+        if not note_project:
+            add_warning(
+                "missing_project_property",
+                "Legacy source note has no project property; add it before relying on project-scoped Obsidian Bases.",
+                rel,
+            )
+        elif note_project != expected_project:
+            add_warning(
+                "project_property_mismatch",
+                f"Note project property {note_project!r} does not match configured project_name {expected_project!r}.",
+                rel,
             )
         priority = normalized_frontmatter_value(frontmatter.get("deep_read_priority"))
         if priority and priority not in READ_SCOPES:
@@ -1761,6 +2155,220 @@ def command_check(args: argparse.Namespace) -> int:
     return 0 if result["valid"] or args.report_only else 1
 
 
+def obsidian_cli_failed(process: subprocess.CompletedProcess[str]) -> bool:
+    return process.returncode != 0 or process.stdout.lstrip().startswith("Error:") or process.stderr.lstrip().startswith("Error:")
+
+
+def run_obsidian_cli(arguments: list[str], executable: str = "obsidian") -> subprocess.CompletedProcess[str]:
+    resolved = shutil.which(executable) if not Path(executable).is_absolute() else executable
+    if not resolved or not Path(resolved).exists():
+        raise ResearchWikiError(f"Obsidian CLI executable not found: {executable}")
+    last: subprocess.CompletedProcess[str] | None = None
+    for _attempt in range(2):
+        try:
+            last = subprocess.run(
+                [str(resolved), *arguments],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ResearchWikiError(f"Obsidian CLI timed out: {' '.join(arguments)}") from exc
+        if not obsidian_cli_failed(last):
+            return last
+    assert last is not None
+    return last
+
+
+def parse_obsidian_vaults(output: str) -> list[tuple[str, Path]]:
+    vaults: list[tuple[str, Path]] = []
+    for line in output.splitlines():
+        if "\t" not in line:
+            continue
+        name, raw_path = line.rsplit("\t", 1)
+        path = Path(raw_path.strip()).expanduser()
+        if name.strip() and raw_path.strip():
+            vaults.append((name.strip(), path.resolve()))
+    return vaults
+
+
+def containing_obsidian_vault(project_path: Path, vaults: list[tuple[str, Path]]) -> tuple[str, Path] | None:
+    candidates = [(name, path) for name, path in vaults if path_is_within(project_path.resolve(), path)]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: len(item[1].parts))
+
+
+def cli_capability_unavailable(process: subprocess.CompletedProcess[str]) -> bool:
+    message = f"{process.stdout}\n{process.stderr}".lower()
+    return "command" in message and ("not found" in message or "requires a plugin" in message)
+
+
+def project_relative_cli_path(raw: str, project_prefix: str) -> bool:
+    value = raw.strip().strip('"').replace("\\", "/").removeprefix("./")
+    prefix = project_prefix.strip("./")
+    return not prefix or value == prefix or value.startswith(prefix + "/")
+
+
+def unresolved_sources(entry: dict[str, Any]) -> list[str]:
+    raw = entry.get("sources", entry.get("source", []))
+    if isinstance(raw, list):
+        return [str(value) for value in raw]
+    if not raw:
+        return []
+    return [value.strip() for value in str(raw).splitlines() if value.strip()]
+
+
+def command_check_obsidian(args: argparse.Namespace) -> int:
+    project_path = resolve_project_path(args)
+    errors: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
+
+    def add(target: list[dict[str, Any]], code: str, message: str, **details: Any) -> None:
+        entry: dict[str, Any] = {"code": code, "message": message}
+        entry.update(details)
+        target.append(entry)
+
+    def finish(vault_name: str | None = None, vault_path: Path | None = None, stats: dict[str, int] | None = None) -> int:
+        result = {
+            "project_path": str(project_path),
+            "vault_name": vault_name,
+            "vault_path": str(vault_path) if vault_path else None,
+            "valid": not errors,
+            "errors": errors,
+            "warnings": warnings,
+            "stats": stats or {},
+        }
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result["valid"] or args.report_only else 1
+
+    if not project_path.is_dir():
+        add(errors, "missing_project", f"Project path does not exist: {project_path}")
+        return finish()
+    executable = args.obsidian_cli
+    try:
+        vault_process = run_obsidian_cli(["vaults", "verbose"], executable)
+    except ResearchWikiError as exc:
+        add(errors, "obsidian_cli_unavailable", str(exc))
+        return finish()
+    if obsidian_cli_failed(vault_process):
+        add(
+            errors,
+            "obsidian_cli_failed",
+            "Could not list Obsidian vaults. Ensure Obsidian is open and the CLI is available.",
+            stderr=vault_process.stderr.strip() or vault_process.stdout.strip(),
+        )
+        return finish()
+    vault = containing_obsidian_vault(project_path, parse_obsidian_vaults(vault_process.stdout))
+    if vault is None:
+        add(errors, "project_outside_obsidian_vault", "Project is not inside any vault reported by `obsidian vaults verbose`.")
+        return finish()
+    vault_name, vault_path = vault
+    project_prefix_path = project_path.relative_to(vault_path)
+    project_prefix = "" if str(project_prefix_path) == "." else project_prefix_path.as_posix()
+    stats = {"unresolved_links": 0, "graph_orphans": 0, "deadends": 0, "base_views_checked": 0}
+
+    unresolved = run_obsidian_cli([f"vault={vault_name}", "unresolved", "verbose", "format=json"], executable)
+    if obsidian_cli_failed(unresolved):
+        target = warnings if cli_capability_unavailable(unresolved) else errors
+        add(
+            target,
+            "obsidian_unresolved_unavailable" if target is warnings else "obsidian_unresolved_failed",
+            "Obsidian unresolved-link inspection is unavailable for this vault." if target is warnings else "Obsidian unresolved-link inspection failed.",
+            stderr=unresolved.stderr.strip() or unresolved.stdout.strip(),
+        )
+    else:
+        try:
+            unresolved_rows = json.loads(unresolved.stdout.strip() or "[]")
+            if not isinstance(unresolved_rows, list):
+                raise ValueError("expected a JSON list")
+        except (json.JSONDecodeError, ValueError) as exc:
+            add(errors, "invalid_obsidian_unresolved_output", f"Could not parse unresolved-link output: {exc}")
+            unresolved_rows = []
+        for entry in unresolved_rows:
+            if not isinstance(entry, dict):
+                continue
+            sources = [source for source in unresolved_sources(entry) if project_relative_cli_path(source, project_prefix)]
+            if sources:
+                stats["unresolved_links"] += 1
+                add(
+                    errors,
+                    "unresolved_link",
+                    f"Unresolved wikilink: {entry.get('link') or '<unknown>'}",
+                    sources=sources,
+                    count=entry.get("count"),
+                )
+
+    for command, code, label in (
+        ("orphans", "graph_orphan", "Obsidian graph orphan"),
+        ("deadends", "deadend", "Obsidian dead end"),
+    ):
+        process = run_obsidian_cli([f"vault={vault_name}", command], executable)
+        if obsidian_cli_failed(process):
+            target = warnings if cli_capability_unavailable(process) else errors
+            add(
+                target,
+                f"obsidian_{command}_unavailable" if target is warnings else f"obsidian_{command}_failed",
+                f"Obsidian {command} inspection is unavailable for this vault."
+                if target is warnings
+                else f"Obsidian {command} inspection failed.",
+                stderr=process.stderr.strip() or process.stdout.strip(),
+            )
+            continue
+        paths = [line.strip() for line in process.stdout.splitlines() if line.strip()]
+        project_paths = [path for path in paths if project_relative_cli_path(path, project_prefix)]
+        stats["graph_orphans" if command == "orphans" else "deadends"] = len(project_paths)
+        for path in project_paths:
+            add(warnings, code, f"{label}: {path}", path=path)
+
+    config = load_project_config(project_path)
+    knowledge_base_path = configured_path(project_path, str(config["knowledge_base_path"]))
+    research_base_path = configured_path(project_path, str(config["research_base_path"]))
+    base_specs = (
+        (knowledge_base_path / KNOWLEDGE_BASE_FILE, KNOWLEDGE_BASE_VIEWS),
+        (research_base_path / RESEARCH_BASE_FILE, RESEARCH_BASE_VIEWS),
+    )
+    existing_bases = [(path, views) for path, views in base_specs if path.is_file()]
+    if not existing_bases:
+        add(warnings, "obsidian_bases_not_enabled", "No research-wiki .base files are present; dynamic-view validation was skipped.")
+    for base_path, views in existing_bases:
+        try:
+            relative_base = base_path.relative_to(vault_path).as_posix()
+        except ValueError:
+            add(errors, "base_outside_obsidian_vault", f"Base file is outside the detected Obsidian vault: {base_path}")
+            continue
+        for view in views:
+            process = run_obsidian_cli(
+                [f"vault={vault_name}", "base:query", f"path={relative_base}", f"view={view}", "format=json"],
+                executable,
+            )
+            if obsidian_cli_failed(process):
+                add(
+                    errors,
+                    "base_query_failed",
+                    f"Obsidian could not query view {view!r} in {relative_base}.",
+                    path=relative_base,
+                    view=view,
+                    stderr=process.stderr.strip() or process.stdout.strip(),
+                )
+            else:
+                try:
+                    json.loads(process.stdout.strip() or "[]")
+                except json.JSONDecodeError as exc:
+                    add(
+                        errors,
+                        "invalid_base_query_output",
+                        f"Obsidian returned invalid JSON for view {view!r} in {relative_base}: {exc}",
+                        path=relative_base,
+                        view=view,
+                    )
+                else:
+                    stats["base_views_checked"] += 1
+
+    return finish(vault_name, vault_path, stats)
+
+
 def command_check_research_base(args: argparse.Namespace) -> int:
     project_path, research_base_path = resolve_research_base_path(args)
     schema = load_research_base_schema(args, project_path)
@@ -1787,6 +2395,7 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--vault", default=str(DEFAULT_VAULT))
     init.add_argument("--collection-key")
     init.add_argument("--collection-name")
+    init.add_argument("--project-name", help="Stable project property used to scope optional Obsidian Bases.")
     init.add_argument(
         "--knowledge-base-path",
         help="Knowledge Base path, absolute or relative to the project; defaults to the project root.",
@@ -1794,6 +2403,11 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument(
         "--research-base-path",
         help="Record a Research Base path in config without creating it.",
+    )
+    init.add_argument(
+        "--with-obsidian-bases",
+        action="store_true",
+        help="Create the optional knowledge.base dynamic views and embed them in index.md.",
     )
     init.add_argument("--yes", action="store_true", help="Confirm writing project files.")
     init.set_defaults(func=command_init_project)
@@ -1805,6 +2419,7 @@ def build_parser() -> argparse.ArgumentParser:
     init_research_base.add_argument("--project", help="Project folder name under --vault.")
     init_research_base.add_argument("--project-path", help="Exact project path.")
     init_research_base.add_argument("--vault", default=str(DEFAULT_VAULT))
+    init_research_base.add_argument("--project-name", help="Stable project property used to scope optional Obsidian Bases.")
     init_research_base.add_argument(
         "--research-base-path",
         help="Research Base path, absolute or relative to the project; defaults to the configured Research Base path.",
@@ -1813,8 +2428,27 @@ def build_parser() -> argparse.ArgumentParser:
         "--research-base-schema",
         help="Project-level Research Base schema JSON, absolute or relative to the project.",
     )
+    init_research_base.add_argument(
+        "--with-obsidian-bases",
+        action="store_true",
+        help="Create the optional research.base dynamic views and embed them in Research Base index.md.",
+    )
     init_research_base.add_argument("--yes", action="store_true", help="Confirm writing Research Base files.")
     init_research_base.set_defaults(func=command_init_research_base)
+
+    init_bases = sub.add_parser(
+        "init-obsidian-bases",
+        help="Create optional project-scoped Obsidian Bases without requiring Zotero or Obsidian CLI.",
+    )
+    init_bases.add_argument("--project", help="Project folder name under --vault.")
+    init_bases.add_argument("--project-path", help="Exact project path.")
+    init_bases.add_argument("--vault", default=str(DEFAULT_VAULT))
+    init_bases.add_argument("--project-name", help="Stable project property used to scope Base rows.")
+    init_bases.add_argument("--knowledge-base-path", help="Override the configured Knowledge Base path.")
+    init_bases.add_argument("--research-base-path", help="Override the configured Research Base path.")
+    init_bases.add_argument("--scope", choices=("knowledge", "research", "all"), default="all")
+    init_bases.add_argument("--yes", action="store_true", help="Confirm writing .base files and index embeds.")
+    init_bases.set_defaults(func=command_init_obsidian_bases)
 
     export = sub.add_parser("export-collection", help="Export Zotero collection metadata and indexed full text caches.")
     export.add_argument("--collection-key")
@@ -1884,6 +2518,17 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--research-base-path", help="Override the configured Research Base exclusion path for this command.")
     check.add_argument("--report-only", action="store_true", help="Always exit successfully while retaining diagnostics.")
     check.set_defaults(func=command_check)
+
+    check_obsidian = sub.add_parser(
+        "check-obsidian",
+        help="Run optional online Obsidian graph and Base validation for a project inside an open vault.",
+    )
+    check_obsidian.add_argument("--project", help="Project folder name under --vault.")
+    check_obsidian.add_argument("--project-path", help="Exact project path.")
+    check_obsidian.add_argument("--vault", default=str(DEFAULT_VAULT))
+    check_obsidian.add_argument("--obsidian-cli", default="obsidian", help="Obsidian CLI executable name or path.")
+    check_obsidian.add_argument("--report-only", action="store_true", help="Always exit successfully while retaining diagnostics.")
+    check_obsidian.set_defaults(func=command_check_obsidian)
 
     check_research_base = sub.add_parser(
         "check-research-base",

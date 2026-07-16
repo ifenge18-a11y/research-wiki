@@ -1,4 +1,4 @@
 interface:
   display_name: "Research Wiki"
-  short_description: "Build Obsidian research wikis from Zotero"
-  default_prompt: "Use $research-wiki to build and maintain an Obsidian research wiki from a Zotero collection."
+  short_description: "Build Obsidian literature and research bases"
+  default_prompt: "Use $research-wiki to maintain an Obsidian-native Knowledge Base and optional Research Base, enabling Bases or CLI checks only when requested."

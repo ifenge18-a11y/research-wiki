@@ -1,8 +1,8 @@
 ---
 name: research-wiki
-description: Build and maintain Obsidian research wikis from Zotero collections using the LLM Wiki pattern. Use when Codex needs to read downloaded Zotero literature, create or update a local Obsidian project knowledge base, ingest papers into bilingual source notes, synthesize concepts/themes/methods/claims, update index/log files, or lint a research wiki for stale claims, missing links, and missing full text.
+description: Build and maintain Obsidian research wikis from Zotero collections using the LLM Wiki pattern, with an optional exploratory Research Base and optional Obsidian Bases/CLI validation. Use when Codex needs to read downloaded Zotero literature, create or update a local Obsidian project knowledge base, ingest papers into bilingual source notes, synthesize concepts/themes/methods/claims, maintain Research Base prototypes, create project-scoped dynamic views, or lint a research wiki for stale metadata, missing links, and missing full text.
 metadata:
-  version: "0.2.0"
+  version: "0.3.0"
 ---
 
 # Research Wiki
@@ -98,11 +98,13 @@ The default location is `Research Base/` within the project. Project paths are s
 Use Research Base for candidate research questions, conversation summaries, method prototypes, data-feasibility checks, design alternatives, and rejected or superseded paths. Every note must use:
 
 ```yaml
+project: Project Alpha
 type: conversation_note | topic_exploration | method_prototype | data_feasibility | design_alternative
 status: exploratory | under_review | promoted | rejected | superseded
 evidence_status: unverified | partially_verified | verified
 created: YYYY-MM-DD
 last_updated: YYYY-MM-DD
+tags: []
 kb_promotion: false
 related_kb_pages: []
 supersedes:
@@ -126,9 +128,42 @@ python3 ~/.codex/skills/research-wiki/scripts/research_wiki.py check-research-ba
 
 Both checks return `valid`, `errors`, and `warnings`; errors exit nonzero. Use `--report-only` only for legacy reporting pipelines that require a zero exit status.
 
+## Obsidian-Native Integration (Optional)
+
+Use Obsidian Flavored Markdown for both Knowledge Base and Research Base notes. When the official Obsidian skills are discoverable, follow `$obsidian-markdown` for properties, wikilinks, embeds, and callouts; follow `$obsidian-bases` only when the user or project enables dynamic views; use `$obsidian-cli` only for an explicit online check. Keep all normal initialization and offline validators functional without those skills, the Obsidian app, or the CLI.
+
+Recommend the official Obsidian skill pack to users who do not have it:
+
+```bash
+npx skills add https://github.com/kepano/obsidian-skills
+```
+
+This is a recommended enhancement, not a hard dependency. `obsidian-markdown`, `obsidian-bases`, and `obsidian-cli` are the relevant components; do not invoke `json-canvas` or `defuddle` unless the user explicitly requests a canvas or web-content extraction.
+
+Keep `index.md` as the portable, Agent-readable canonical index. Create parallel project-scoped Bases only after explicit opt-in:
+
+```bash
+python3 ~/.codex/skills/research-wiki/scripts/research_wiki.py init-obsidian-bases \
+  --project-path "/Users/feng/Documents/Obsidian Vault/ESG CSR" \
+  --scope all \
+  --yes
+```
+
+Alternatively pass `--with-obsidian-bases` to `init-project` or `init-research-base`. The helper creates `knowledge.base` and/or `research.base`, embeds them in the corresponding `index.md`, and sets `obsidian_bases_enabled: true`. It never creates Research Base as a side effect of Base initialization.
+
+Run online semantic validation only when Obsidian is open and the CLI is available:
+
+```bash
+python3 ~/.codex/skills/research-wiki/scripts/research_wiki.py check-obsidian \
+  --project-path "/Users/feng/Documents/Obsidian Vault/ESG CSR"
+```
+
+This supplements `check` and `check-research-base` with unresolved-wikilink errors, graph-orphan/dead-end warnings, and Base-query validation. Read `references/obsidian-integration.md` before enabling or changing this layer.
+
 ## Writing Rules
 
 - Write wiki pages in bilingual form: Chinese synthesis first, preserving English titles, constructs, methods, variable names, and quote-adjacent technical terms.
+- Use valid Obsidian properties on newly authored pages. Keep `project`, `type`, `status`, `created`, the appropriate update field, and `tags`; use the configured `project_name` so optional Bases remain project-scoped. Missing `project` on legacy notes is a warning, not a migration-blocking error.
 - Use Zotero item keys as stable source identifiers. Distinguish them from BibTeX keys if both appear.
 - Preserve Zotero traceability in source pages: `zotero_item_key`, `zotero_uri`, `citation_key`, `zotero_modified`, and `source_fingerprint`.
 - Preserve source-note read progress in frontmatter. Use `status`, `deep_read_priority`, `need_fulltext_read`, `read_level`, and `deep_read_completed` unless the project `AGENTS.md` defines a different schema. Keep `source_route`, `verification_status`, and actual `read_level` as separate dimensions.
@@ -162,4 +197,5 @@ Use `status: screened` and `read_level: abstract` for initial source notes creat
 ## Resources
 
 - Read `references/project-schema.md` when creating or updating project wiki pages.
+- Read `references/obsidian-integration.md` before enabling, validating, or changing optional Obsidian Bases/CLI behavior.
 - Use `scripts/research_wiki.py` for repeatable Zotero reads, project skeleton creation, Research Base initialization, cache export, and health checks.
